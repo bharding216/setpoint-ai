@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { colors, spacing } from '../theme';
@@ -118,6 +119,7 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
 
   const askAI = async () => {
     if (!user) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setAiLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke(
@@ -197,6 +199,7 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
 
   const startWorkout = async () => {
     if (!todayWorkout) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     await supabase
       .from('workouts')
@@ -232,6 +235,7 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
 
   const startBlankWorkout = async () => {
     if (!user) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const { data: workout, error } = await supabase
       .from('workouts')

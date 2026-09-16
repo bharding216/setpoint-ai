@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SymbolView } from 'expo-symbols';
+import * as SplashScreen from 'expo-splash-screen';
 
 import { useAuth } from '../contexts/AuthContext';
 import { colors } from '../theme';
@@ -12,6 +13,7 @@ import LoginScreen from '../screens/LoginScreen';
 import TodayScreen from '../screens/TodayScreen';
 import WorkoutScreen from '../screens/WorkoutScreen';
 import HistoryScreen from '../screens/HistoryScreen';
+import ProgressScreen from '../screens/ProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import ImportScreen from '../screens/ImportScreen';
 
@@ -73,6 +75,21 @@ function MainTabs() {
         }}
       />
       <Tab.Screen
+        name="Progress"
+        component={ProgressScreen}
+        options={{
+          title: 'Progress',
+          tabBarIcon: ({ color, size }) => (
+            <SymbolView
+              name="chart.line.uptrend.xyaxis"
+              tintColor={color}
+              style={{ width: size, height: size }}
+              type="monochrome"
+            />
+          ),
+        }}
+      />
+      <Tab.Screen
         name="Settings"
         component={SettingsScreen}
         options={{
@@ -94,19 +111,14 @@ function MainTabs() {
 export default function AppNavigator() {
   const { session, loading } = useAuth();
 
+  useEffect(() => {
+    if (!loading) {
+      SplashScreen.hide();
+    }
+  }, [loading]);
+
   if (loading) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: colors.background,
-        }}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return null;
   }
 
   return (

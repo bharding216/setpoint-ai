@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,16 @@ import {
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import DraggableFlatList, {
+  ScaleDecorator,
+  RenderItemParams,
+} from 'react-native-draggable-flatlist';
+import { useKeepAwake } from 'expo-keep-awake';
+import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { maybeRequestReview } from '../lib/storeReview';
+import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing } from '../theme';
 import { ExerciseSet, ExerciseWithSets } from '../types/database';
 
@@ -31,6 +39,117 @@ type WorkoutFeedback = {
   plan_adjustments: PlanAdjustment[];
   coach_tip: string;
 };
+
+// ─── Rest Timer ─────────────────────────────────────────────
+const REST_PRESETS = [30, 60, 90, 120, 180];
+
+function RestTimer({ onDismiss }: { onDismiss: () => void }) {
+  const [duration, setDuration] = useState(90);
+  const [remaining, setRemaining] = useState(90);
+  const [running, setRunning] = useState(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (running && remaining > 0) {
+      intervalRef.current = setInterval(() => {
+        setRemaining((prev) => {
+          if (prev <= 1) {
+            clearInterval(intervalRef.current!);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setRunning(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [running, remaining]);
+
+  const selectDuration = (secs: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setDuration(secs);
+    setRemaining(secs);
+    setRunning(true);
+  };
+
+  const togglePause = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (remaining === 0) {
+      setRemaining(duration);
+      setRunning(true);
+    } else {
+      setRunning((prev) => !prev);
+    }
+  };
+
+  const dismiss = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    onDismiss();
+  };
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const progress = duration > 0 ? remaining / duration : 0;
+  const isFinished = remaining === 0;
+
+  return (
+    <View style={timerStyles.container}>
+      <View
+        style={[
+          timerStyles.progressBar,
+          {
+            width: `${progress * 100}%`,
+            backgroundColor: isFinished ? colors.success : colors.primary,
+          },
+        ]}
+      />
+      <View style={timerStyles.content}>
+        <View style={timerStyles.presets}>
+          {REST_PRESETS.map((s) => (
+            <TouchableOpacity
+              key={s}
+              style={[
+                timerStyles.presetChip,
+                duration === s && timerStyles.presetChipActive,
+              ]}
+              onPress={() => selectDuration(s)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  timerStyles.presetText,
+                  duration === s && timerStyles.presetTextActive,
+                ]}
+              >
+                {s >= 60 ? `${s / 60}m` : `${s}s`}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={timerStyles.controls}>
+          <TouchableOpacity onPress={togglePause} activeOpacity={0.7}>
+            <Text
+              style={[
+                timerStyles.time,
+                isFinished && { color: colors.success },
+              ]}
+            >
+              {isFinished
+                ? 'Done!'
+                : `${mins}:${secs.toString().padStart(2, '0')}`}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={dismiss} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Text style={timerStyles.dismiss}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 // ─── Set Row ────────────────────────────────────────────────
 function SetRow({
@@ -80,7 +199,10 @@ function SetRow({
         selectTextOnFocus
       />
       <TouchableOpacity
-        onPress={onDelete}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onDelete();
+        }}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
         <Text style={styles.deleteSet}>✕</Text>
@@ -158,6 +280,97 @@ function CardioFields({
   );
 }
 
+// ─── Exercise Card (used by DraggableFlatList) ──────────────
+function ExerciseCard({
+  exercise,
+  drag,
+  isActive,
+  onAddSet,
+  onUpdateSet,
+  onDeleteSet,
+  onRemove,
+  onRefresh,
+}: {
+  exercise: ExerciseWithSets;
+  drag: () => void;
+  isActive: boolean;
+  onAddSet: (exercise: ExerciseWithSets) => void;
+  onUpdateSet: (setId: string, field: 'weight' | 'reps' | 'rpe', value: string) => void;
+  onDeleteSet: (setId: string) => void;
+  onRemove: (exercise: ExerciseWithSets) => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <ScaleDecorator>
+      <View
+        style={[
+          styles.exerciseCard,
+          isActive && { opacity: 0.9, transform: [{ scale: 1.02 }] },
+        ]}
+      >
+        <TouchableOpacity
+          onLongPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            drag();
+          }}
+          delayLongPress={200}
+          activeOpacity={0.7}
+        >
+          <View style={styles.exerciseHeader}>
+            <Text style={styles.exerciseName}>{exercise.name}</Text>
+            <Text style={styles.dragHandle}>⠿</Text>
+          </View>
+        </TouchableOpacity>
+
+        {exercise.exercise_type === 'strength' ? (
+          <>
+            <View style={styles.setHeader}>
+              <Text style={styles.setHeaderNum}>#</Text>
+              <Text style={styles.setHeaderText}>WEIGHT</Text>
+              <Text style={styles.setHeaderText}>REPS</Text>
+              <Text style={[styles.setHeaderText, styles.setHeaderSmall]}>
+                RPE
+              </Text>
+              <View style={{ width: 28 }} />
+            </View>
+
+            {exercise.sets.map((set) => (
+              <SetRow
+                key={set.id}
+                set={set}
+                onUpdate={(field, value) => onUpdateSet(set.id, field, value)}
+                onDelete={() => onDeleteSet(set.id)}
+              />
+            ))}
+
+            <TouchableOpacity
+              style={styles.addSetButton}
+              onPress={() => onAddSet(exercise)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.addSetText}>+ Add Set</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <CardioFields
+            exerciseId={exercise.id}
+            cardio={exercise.cardio}
+            onSaved={onRefresh}
+          />
+        )}
+
+        <TouchableOpacity
+          style={styles.removeExerciseButton}
+          onPress={() => onRemove(exercise)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.removeExerciseText}>Remove</Text>
+        </TouchableOpacity>
+      </View>
+    </ScaleDecorator>
+  );
+}
+
 // ─── Main Screen ────────────────────────────────────────────
 export default function WorkoutScreen({
   route,
@@ -166,6 +379,9 @@ export default function WorkoutScreen({
   route: any;
   navigation: any;
 }) {
+  useKeepAwake();
+
+  const { user } = useAuth();
   const { workoutId, mode = 'log' } = route.params as {
     workoutId: string;
     mode?: 'log' | 'plan';
@@ -184,6 +400,7 @@ export default function WorkoutScreen({
   const [feedback, setFeedback] = useState<WorkoutFeedback | null>(null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showRestTimer, setShowRestTimer] = useState(false);
 
   const fetchExercises = useCallback(async () => {
     const { data: workout } = await supabase
@@ -225,6 +442,8 @@ export default function WorkoutScreen({
   const addExercise = async () => {
     if (!newExerciseName.trim()) return;
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     const { error } = await supabase.from('workout_exercises').insert({
       workout_id: workoutId,
       name: newExerciseName.trim(),
@@ -244,6 +463,8 @@ export default function WorkoutScreen({
   };
 
   const addSet = async (exercise: ExerciseWithSets) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     const last = exercise.sets[exercise.sets.length - 1];
     const { error } = await supabase.from('exercise_sets').insert({
       exercise_id: exercise.id,
@@ -252,7 +473,10 @@ export default function WorkoutScreen({
       reps: last?.reps ?? null,
     });
     if (error) Alert.alert('Error', error.message);
-    else fetchExercises();
+    else {
+      if (!isPlanning) setShowRestTimer(true);
+      fetchExercises();
+    }
   };
 
   const updateSet = async (
@@ -268,11 +492,13 @@ export default function WorkoutScreen({
   };
 
   const deleteSet = async (setId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await supabase.from('exercise_sets').delete().eq('id', setId);
     fetchExercises();
   };
 
   const removeExercise = (exercise: ExerciseWithSets) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert('Remove Exercise', `Remove ${exercise.name}?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -289,7 +515,24 @@ export default function WorkoutScreen({
     ]);
   };
 
+  const onDragEnd = async ({ data }: { data: ExerciseWithSets[] }) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setExercises(data);
+
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].exercise_order !== i) {
+        await supabase
+          .from('workout_exercises')
+          .update({ exercise_order: i })
+          .eq('id', data[i].id);
+      }
+    }
+  };
+
   const finishWorkout = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowRestTimer(false);
+
     const { error } = await supabase
       .from('workouts')
       .update({ status: 'completed' })
@@ -309,6 +552,7 @@ export default function WorkoutScreen({
       );
       if (fbError) throw fbError;
       setFeedback(data);
+      if (user) maybeRequestReview(user.id);
     } catch (err: any) {
       console.warn('Feedback failed:', err.message);
       setFeedback(null);
@@ -324,6 +568,7 @@ export default function WorkoutScreen({
   };
 
   const savePlan = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert('Plan Saved', 'Your workout plan has been updated.');
     navigation.goBack();
   };
@@ -341,6 +586,167 @@ export default function WorkoutScreen({
   const headerTitle = isPlanning
     ? `Plan — ${workoutType || 'Workout'}`
     : workoutType || 'Workout';
+
+  const renderExercise = ({
+    item,
+    drag,
+    isActive,
+  }: RenderItemParams<ExerciseWithSets>) => (
+    <ExerciseCard
+      exercise={item}
+      drag={drag}
+      isActive={isActive}
+      onAddSet={addSet}
+      onUpdateSet={updateSet}
+      onDeleteSet={deleteSet}
+      onRemove={removeExercise}
+      onRefresh={fetchExercises}
+    />
+  );
+
+  const ListHeader = (
+    <View>
+      {editingTitle ? (
+        <TextInput
+          style={styles.titleInput}
+          value={workoutType}
+          onChangeText={setWorkoutType}
+          onEndEditing={() => saveTitle(workoutType)}
+          onSubmitEditing={() => saveTitle(workoutType)}
+          autoFocus
+          placeholder="Workout title…"
+          placeholderTextColor={colors.textTertiary}
+          returnKeyType="done"
+          selectTextOnFocus
+        />
+      ) : (
+        <TouchableOpacity onPress={() => setEditingTitle(true)} activeOpacity={0.6}>
+          <Text style={styles.title}>
+            {headerTitle || 'Tap to name workout'}
+            <Text style={styles.titleEditHint}> ✎</Text>
+          </Text>
+        </TouchableOpacity>
+      )}
+      {isPlanning && (
+        <Text style={styles.planningHint}>
+          Edit exercises and sets for this plan. Changes save automatically.
+        </Text>
+      )}
+      {!isPlanning && exercises.length > 1 && (
+        <Text style={styles.reorderHint}>
+          Long-press and drag to reorder exercises
+        </Text>
+      )}
+    </View>
+  );
+
+  const ListFooter = (
+    <View>
+      {showAddExercise ? (
+        <View style={styles.addExerciseForm}>
+          <TextInput
+            style={styles.addExerciseInput}
+            value={newExerciseName}
+            onChangeText={setNewExerciseName}
+            placeholder="Exercise name"
+            placeholderTextColor={colors.textTertiary}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={addExercise}
+          />
+          <View style={styles.typeToggle}>
+            <TouchableOpacity
+              style={[
+                styles.typeButton,
+                newExerciseType === 'strength' && styles.typeButtonActive,
+              ]}
+              onPress={() => setNewExerciseType('strength')}
+            >
+              <Text
+                style={[
+                  styles.typeButtonText,
+                  newExerciseType === 'strength' &&
+                    styles.typeButtonTextActive,
+                ]}
+              >
+                Strength
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.typeButton,
+                newExerciseType === 'cardio' && styles.typeButtonActive,
+              ]}
+              onPress={() => setNewExerciseType('cardio')}
+            >
+              <Text
+                style={[
+                  styles.typeButtonText,
+                  newExerciseType === 'cardio' && styles.typeButtonTextActive,
+                ]}
+              >
+                Cardio
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.addExerciseActions}>
+            <TouchableOpacity onPress={() => setShowAddExercise(false)}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.addButton} onPress={addExercise}>
+              <Text style={styles.addButtonText}>Add</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.addExerciseButton}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowAddExercise(true);
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.addExerciseButtonText}>+ Add Exercise</Text>
+        </TouchableOpacity>
+      )}
+
+      {!isPlanning && (
+        <TouchableOpacity
+          style={styles.timerToggleButton}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowRestTimer((prev) => !prev);
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.timerToggleText}>
+            {showRestTimer ? 'Hide Rest Timer' : '⏱ Rest Timer'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {isPlanning ? (
+        <TouchableOpacity
+          style={styles.savePlanButton}
+          onPress={savePlan}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.savePlanButtonText}>Done Editing Plan</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={styles.finishButton}
+          onPress={finishWorkout}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.finishButtonText}>Finish Workout</Text>
+        </TouchableOpacity>
+      )}
+
+      <View style={{ height: showRestTimer ? 120 : spacing.xl * 3 }} />
+    </View>
+  );
 
   return (
     <KeyboardAvoidingView
@@ -438,179 +844,96 @@ export default function WorkoutScreen({
         </View>
       </Modal>
 
-      <ScrollView
-        style={styles.container}
+      <DraggableFlatList
+        data={exercises}
+        renderItem={renderExercise}
+        keyExtractor={(item) => item.id}
+        onDragEnd={onDragEnd}
+        ListHeaderComponent={ListHeader}
+        ListFooterComponent={ListFooter}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
-      >
-        {editingTitle ? (
-          <TextInput
-            style={styles.titleInput}
-            value={workoutType}
-            onChangeText={setWorkoutType}
-            onEndEditing={() => saveTitle(workoutType)}
-            onSubmitEditing={() => saveTitle(workoutType)}
-            autoFocus
-            placeholder="Workout title…"
-            placeholderTextColor={colors.textTertiary}
-            returnKeyType="done"
-            selectTextOnFocus
-          />
-        ) : (
-          <TouchableOpacity onPress={() => setEditingTitle(true)} activeOpacity={0.6}>
-            <Text style={styles.title}>
-              {headerTitle || 'Tap to name workout'}
-              <Text style={styles.titleEditHint}> ✎</Text>
-            </Text>
-          </TouchableOpacity>
-        )}
-        {isPlanning && (
-          <Text style={styles.planningHint}>
-            Edit exercises and sets for this plan. Changes save automatically.
-          </Text>
-        )}
+        activationDistance={10}
+      />
 
-        {exercises.map((exercise) => (
-          <View key={exercise.id} style={styles.exerciseCard}>
-            <TouchableOpacity
-              onLongPress={() => removeExercise(exercise)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.exerciseName}>{exercise.name}</Text>
-            </TouchableOpacity>
-
-            {exercise.exercise_type === 'strength' ? (
-              <>
-                <View style={styles.setHeader}>
-                  <Text style={styles.setHeaderNum}>#</Text>
-                  <Text style={styles.setHeaderText}>WEIGHT</Text>
-                  <Text style={styles.setHeaderText}>REPS</Text>
-                  <Text style={[styles.setHeaderText, styles.setHeaderSmall]}>
-                    RPE
-                  </Text>
-                  <View style={{ width: 28 }} />
-                </View>
-
-                {exercise.sets.map((set) => (
-                  <SetRow
-                    key={set.id}
-                    set={set}
-                    onUpdate={(field, value) => updateSet(set.id, field, value)}
-                    onDelete={() => deleteSet(set.id)}
-                  />
-                ))}
-
-                <TouchableOpacity
-                  style={styles.addSetButton}
-                  onPress={() => addSet(exercise)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.addSetText}>+ Add Set</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <CardioFields
-                exerciseId={exercise.id}
-                cardio={exercise.cardio}
-                onSaved={fetchExercises}
-              />
-            )}
-          </View>
-        ))}
-
-        {showAddExercise ? (
-          <View style={styles.addExerciseForm}>
-            <TextInput
-              style={styles.addExerciseInput}
-              value={newExerciseName}
-              onChangeText={setNewExerciseName}
-              placeholder="Exercise name"
-              placeholderTextColor={colors.textTertiary}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={addExercise}
-            />
-            <View style={styles.typeToggle}>
-              <TouchableOpacity
-                style={[
-                  styles.typeButton,
-                  newExerciseType === 'strength' && styles.typeButtonActive,
-                ]}
-                onPress={() => setNewExerciseType('strength')}
-              >
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    newExerciseType === 'strength' &&
-                      styles.typeButtonTextActive,
-                  ]}
-                >
-                  Strength
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.typeButton,
-                  newExerciseType === 'cardio' && styles.typeButtonActive,
-                ]}
-                onPress={() => setNewExerciseType('cardio')}
-              >
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    newExerciseType === 'cardio' && styles.typeButtonTextActive,
-                  ]}
-                >
-                  Cardio
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.addExerciseActions}>
-              <TouchableOpacity onPress={() => setShowAddExercise(false)}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.addButton} onPress={addExercise}>
-                <Text style={styles.addButtonText}>Add</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.addExerciseButton}
-            onPress={() => setShowAddExercise(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.addExerciseButtonText}>+ Add Exercise</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Bottom action */}
-        {isPlanning ? (
-          <TouchableOpacity
-            style={styles.savePlanButton}
-            onPress={savePlan}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.savePlanButtonText}>Done Editing Plan</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.finishButton}
-            onPress={finishWorkout}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.finishButtonText}>Finish Workout</Text>
-          </TouchableOpacity>
-        )}
-      </ScrollView>
+      {showRestTimer && (
+        <RestTimer onDismiss={() => setShowRestTimer(false)} />
+      )}
     </KeyboardAvoidingView>
   );
 }
 
-// ─── Styles ─────────────────────────────────────────────────
+// ─── Rest Timer Styles ──────────────────────────────────────
+const timerStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    height: 3,
+  },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  presets: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  presetChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: 16,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  presetChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  presetText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  presetTextActive: {
+    color: '#fff',
+  },
+  controls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  time: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  dismiss: {
+    fontSize: 18,
+    color: colors.textTertiary,
+    padding: spacing.sm,
+  },
+});
+
+// ─── Main Styles ────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, paddingBottom: spacing.xl * 3 },
+  content: { padding: spacing.lg },
   title: {
     fontSize: 24,
     fontWeight: '700',
@@ -636,6 +959,11 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.lg,
   },
+  reorderHint: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    marginBottom: spacing.md,
+  },
 
   exerciseCard: {
     backgroundColor: colors.surface,
@@ -643,11 +971,23 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.md,
   },
+  exerciseHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   exerciseName: {
     fontSize: 17,
     fontWeight: '600',
     color: colors.text,
     marginBottom: spacing.sm,
+    flex: 1,
+  },
+  dragHandle: {
+    fontSize: 20,
+    color: colors.textTertiary,
+    paddingLeft: spacing.sm,
+    paddingBottom: spacing.sm,
   },
 
   setHeader: {
@@ -718,6 +1058,17 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 14,
     fontWeight: '600',
+  },
+
+  removeExerciseButton: {
+    alignSelf: 'flex-end',
+    marginTop: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  removeExerciseText: {
+    fontSize: 12,
+    color: colors.textTertiary,
   },
 
   cardioFields: { marginTop: spacing.xs },
@@ -806,6 +1157,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   addButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+
+  timerToggleButton: {
+    alignItems: 'center',
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  timerToggleText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
 
   finishButton: {
     backgroundColor: colors.success,

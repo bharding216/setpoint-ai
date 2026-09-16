@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SymbolView } from 'expo-symbols';
+import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -157,6 +158,7 @@ export default function HistoryScreen({ navigation }: { navigation: any }) {
   };
 
   const deleteWorkout = (item: WorkoutRow) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     swipeableRefs.current.get(item.id)?.close();
     Alert.alert(
       'Delete Workout',
@@ -187,11 +189,13 @@ export default function HistoryScreen({ navigation }: { navigation: any }) {
   };
 
   const toggleExpand = (id: string) => {
+    Haptics.selectionAsync();
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
   const startPlannedWorkout = async (item: WorkoutRow) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     await supabase
       .from('workouts')
       .update({ status: 'in_progress' })
