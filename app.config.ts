@@ -15,7 +15,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   userInterfaceStyle: 'dark',
   scheme: IS_DEV ? 'setpoint-dev' : 'setpoint',
   ios: {
-    supportsTablet: true,
+    supportsTablet: false,
     bundleIdentifier: BUNDLE_ID,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
