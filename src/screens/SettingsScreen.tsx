@@ -91,45 +91,38 @@ function ScheduleRow({
   day,
   value,
   onSave,
+  showPresets,
 }: {
   day: string;
   value: string;
   onSave: (v: string) => void;
+  showPresets: boolean;
 }) {
   const [text, setText] = useState(value);
-  const [showPresets, setShowPresets] = useState(false);
 
   const selectPreset = (preset: string) => {
     setText(preset);
     onSave(preset);
-    setShowPresets(false);
   };
 
   return (
     <View style={styles.scheduleRowWrapper}>
       <View style={styles.scheduleRow}>
         <Text style={styles.scheduleDay}>{day}</Text>
-        <TouchableOpacity
-          style={styles.scheduleInputWrapper}
-          onPress={() => setShowPresets((p) => !p)}
-          activeOpacity={0.7}
-        >
+        <View style={styles.scheduleInputWrapper}>
           <TextInput
             style={styles.scheduleInput}
             value={text}
             onChangeText={setText}
-            onEndEditing={() => {
-              onSave(text.trim());
-              setShowPresets(false);
-            }}
+            onEndEditing={() => onSave(text.trim())}
             placeholder="Tap to set…"
             placeholderTextColor={colors.textTertiary}
             returnKeyType="done"
           />
-        </TouchableOpacity>
+        </View>
       </View>
       {showPresets && (
-        <View style={styles.presetChipRow}>
+        <View style={styles.schedulePresetRow}>
           {SCHEDULE_PRESETS.map((p) => (
             <TouchableOpacity
               key={p}
@@ -152,6 +145,48 @@ function ScheduleRow({
           ))}
         </View>
       )}
+    </View>
+  );
+}
+
+// ─── Schedule Section with suggestions toggle ───────────────
+
+function ScheduleSection({
+  schedule,
+  onSave,
+}: {
+  schedule: (WeeklyScheduleEntry | null)[];
+  onSave: (day: number, value: string) => void;
+}) {
+  const [showPresets, setShowPresets] = useState(false);
+
+  const selectPreset = (preset: string, dayIndex: number) => {
+    onSave(dayIndex, preset);
+  };
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Weekly Schedule</Text>
+        <TouchableOpacity
+          onPress={() => setShowPresets((p) => !p)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.suggestionsToggle}>
+            {showPresets ? 'Hide suggestions' : 'Suggestions'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {DAY_NAMES.map((day, i) => (
+        <ScheduleRow
+          key={day}
+          day={day}
+          value={schedule[i]?.session_type ?? ''}
+          onSave={(v) => onSave(i, v)}
+          showPresets={showPresets}
+        />
+      ))}
     </View>
   );
 }
@@ -365,17 +400,10 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
       keyboardShouldPersistTaps="handled"
     >
       {/* Weekly Schedule */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Weekly Schedule</Text>
-        {DAY_NAMES.map((day, i) => (
-          <ScheduleRow
-            key={day}
-            day={day}
-            value={schedule[i]?.session_type ?? ''}
-            onSave={(v) => saveScheduleDay(i, v)}
-          />
-        ))}
-      </View>
+      <ScheduleSection
+        schedule={schedule}
+        onSave={saveScheduleDay}
+      />
 
       {/* Goals */}
       <PreferenceSection
@@ -409,7 +437,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
 
       {/* Data */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Data</Text>
+        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>Data</Text>
         <TouchableOpacity
           style={styles.importButton}
           onPress={() => navigation.getParent()?.navigate('ImportScreen')}
@@ -421,7 +449,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
 
       {/* Account */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account</Text>
+        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>Account</Text>
         <Text style={styles.emailText}>{user?.email}</Text>
         <TouchableOpacity
           style={styles.logoutButton}
@@ -494,6 +522,14 @@ const styles = StyleSheet.create({
   },
 
   // Preset chips
+  schedulePresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+    marginLeft: 100,
+    gap: spacing.xs,
+  },
   presetChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
