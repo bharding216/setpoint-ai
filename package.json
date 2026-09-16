@@ -36,9 +36,47 @@
   },
   "scripts": {
     "start": "expo start",
+    "start:clear": "expo start --clear",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+
+    "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean",
+
+    "build:dev": "eas build --profile development --platform all",
+    "build:dev:ios": "eas build --profile development --platform ios",
+    "build:dev:android": "eas build --profile development --platform android",
+    "build:dev:simulator": "eas build --profile development:simulator --platform ios",
+
+    "build:preview": "eas build --profile preview --platform all",
+    "build:preview:ios": "eas build --profile preview --platform ios",
+    "build:preview:android": "eas build --profile preview --platform android",
+
+    "build:prod": "eas build --profile production --platform all",
+    "build:prod:ios": "eas build --profile production --platform ios",
+    "build:prod:android": "eas build --profile production --platform android",
+
+    "build:local:ios": "eas build --profile development --platform ios --local",
+    "build:local:android": "eas build --profile development --platform android --local",
+
+    "submit:ios": "eas submit --platform ios --latest",
+    "submit:android": "eas submit --platform android --latest",
+    "submit:all": "eas submit --platform all --latest",
+
+    "release:ios": "eas build --profile production --platform ios --auto-submit",
+    "release:android": "eas build --profile production --platform android --auto-submit",
+
+    "update": "eas update",
+    "update:preview": "eas update --channel preview",
+    "update:production": "eas update --channel production",
+
+    "credentials:ios": "eas credentials --platform ios",
+    "credentials:android": "eas credentials --platform android",
+
+    "doctor": "npx expo-doctor",
+    "typecheck": "tsc --noEmit",
+    "lint": "expo lint"
   },
   "private": true
 }

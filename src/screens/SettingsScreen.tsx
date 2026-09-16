@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import Constants from 'expo-constants';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { colors, spacing } from '../theme';
@@ -459,6 +460,16 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </View>
+
+      {/* App Info */}
+      <View style={styles.versionContainer}>
+        <Text style={styles.versionText}>
+          Setpoint AI v{Constants.expoConfig?.version ?? '1.0.0'}
+        </Text>
+        {Constants.expoConfig?.extra?.isDev && (
+          <Text style={styles.devBadge}>DEV</Text>
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -622,4 +633,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoutText: { color: colors.error, fontSize: 16, fontWeight: '600' },
+
+  // Version
+  versionContainer: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingBottom: spacing.lg,
+  },
+  versionText: {
+    fontSize: 13,
+    color: colors.textTertiary,
+  },
+  devBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.warning,
+    backgroundColor: colors.warning + '18',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
 });
