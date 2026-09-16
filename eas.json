@@ -32,17 +32,5 @@
       "autoIncrement": true,
       "channel": "production"
     }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "ascAppId": "",
-        "appleTeamId": ""
-      },
-      "android": {
-        "serviceAccountKeyPath": "",
-        "track": "internal"
-      }
-    }
   }
 }

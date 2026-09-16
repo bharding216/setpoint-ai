@@ -1,9 +1,9 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 
 const IS_DEV = process.env.APP_VARIANT === 'development';
-const BUNDLE_ID = IS_DEV ? 'com.setpoint.ai.dev' : 'com.setpoint.ai';
+const BUNDLE_ID = IS_DEV ? 'com.toddly.setpointai.dev' : 'com.toddly.setpointai';
 
-const VERSION = '1.0.0';
+const VERSION = '1.0';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -50,7 +50,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
   ],
   updates: {
-    url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID ?? ''}`,
+    url: 'https://u.expo.dev/4f6e2b3a-633f-4a53-9955-625ef8099684',
   },
   runtimeVersion: {
     policy: 'appVersion',
@@ -59,7 +59,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     appVersion: VERSION,
     isDev: IS_DEV,
     eas: {
-      projectId: process.env.EAS_PROJECT_ID ?? '',
+      projectId: '4f6e2b3a-633f-4a53-9955-625ef8099684',
     },
   },
 });
