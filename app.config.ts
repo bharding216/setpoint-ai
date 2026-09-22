@@ -3,7 +3,7 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
 const IS_DEV = process.env.APP_VARIANT === 'development';
 const BUNDLE_ID = IS_DEV ? 'com.toddly.setpointai.dev' : 'com.toddly.setpointai';
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,

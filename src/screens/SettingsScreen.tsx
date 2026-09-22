@@ -464,7 +464,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
       {/* App Info */}
       <View style={styles.versionContainer}>
         <Text style={styles.versionText}>
-          Setpoint AI v{Constants.expoConfig?.version ?? '1.0'}
+          Setpoint AI v{Constants.expoConfig?.version ?? '1.1'}
         </Text>
         {Constants.expoConfig?.extra?.isDev && (
           <Text style={styles.devBadge}>DEV</Text>
