@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
+import { makeRedirectUri } from 'expo-auth-session';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing } from '../theme';
 
@@ -45,10 +46,18 @@ export default function LoginScreen() {
 
   const googleEnabled = !!GOOGLE_WEB_CLIENT_ID;
 
+  // Google requires the reversed iOS client ID as the redirect scheme
+  const googleReversedScheme = GOOGLE_IOS_CLIENT_ID
+    ? GOOGLE_IOS_CLIENT_ID.split('.').reverse().join('.')
+    : undefined;
+
   const [googleRequest, googleResponse, promptGoogleAsync] =
     Google.useAuthRequest({
       iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
       webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+      ...(googleReversedScheme
+        ? { redirectUri: makeRedirectUri({ scheme: googleReversedScheme, path: 'oauthredirect' }) }
+        : {}),
     });
 
   useEffect(() => {
