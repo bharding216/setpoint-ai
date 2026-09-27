@@ -5,12 +5,6 @@ const BUNDLE_ID = IS_DEV ? 'com.toddly.setpointai.dev' : 'com.toddly.setpointai'
 
 const VERSION = '1.1';
 
-// Google Sign-In requires the reversed iOS client ID as a URL scheme
-const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
-const GOOGLE_IOS_REVERSED_ID = GOOGLE_IOS_CLIENT_ID
-  ? GOOGLE_IOS_CLIENT_ID.split('.').reverse().join('.')
-  : '';
-
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: IS_DEV ? 'Setpoint AI Dev' : 'Setpoint AI',
@@ -26,15 +20,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     usesAppleSignIn: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
-      ...(GOOGLE_IOS_REVERSED_ID
-        ? {
-            CFBundleURLTypes: [
-              {
-                CFBundleURLSchemes: [GOOGLE_IOS_REVERSED_ID],
-              },
-            ],
-          }
-        : {}),
     },
   },
   android: {

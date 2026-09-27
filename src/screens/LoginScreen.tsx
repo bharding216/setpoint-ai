@@ -10,20 +10,10 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
-import { makeRedirectUri } from 'expo-auth-session';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing } from '../theme';
 
-WebBrowser.maybeCompleteAuthSession();
-
 type AuthMode = 'welcome' | 'email' | 'email-verify' | 'password';
-
-const GOOGLE_WEB_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
-const GOOGLE_IOS_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
 
 export default function LoginScreen() {
   const {
@@ -42,42 +32,6 @@ export default function LoginScreen() {
   const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // ─── Google Auth Session ────────────────────────────────
-
-  const googleEnabled = !!GOOGLE_WEB_CLIENT_ID;
-
-  // Google requires the reversed iOS client ID as the redirect scheme
-  const googleReversedScheme = GOOGLE_IOS_CLIENT_ID
-    ? GOOGLE_IOS_CLIENT_ID.split('.').reverse().join('.')
-    : undefined;
-
-  const [googleRequest, googleResponse, promptGoogleAsync] =
-    Google.useAuthRequest({
-      iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
-      webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
-      ...(googleReversedScheme
-        ? { redirectUri: makeRedirectUri({ scheme: googleReversedScheme, path: 'oauthredirect' }) }
-        : {}),
-    });
-
-  useEffect(() => {
-    if (googleResponse?.type === 'success') {
-      const idToken = googleResponse.params?.id_token;
-      if (idToken) {
-        handleGoogleToken(idToken);
-      }
-    }
-  }, [googleResponse]);
-
-  const handleGoogleToken = async (idToken: string) => {
-    setLoading(true);
-    const { error } = await signInWithGoogle(idToken);
-    setLoading(false);
-    if (error) {
-      Alert.alert('Sign In Failed', error.message);
-    }
-  };
-
   // ─── Apple Sign In ─────────────────────────────────────
 
   const handleAppleSignIn = async () => {
@@ -92,14 +46,12 @@ export default function LoginScreen() {
   // ─── Google Sign In ────────────────────────────────────
 
   const handleGoogleSignIn = async () => {
-    if (!googleEnabled) return;
     setLoading(true);
-    try {
-      await promptGoogleAsync();
-    } catch {
-      Alert.alert('Error', 'Could not open Google sign-in.');
-    }
+    const { error } = await signInWithGoogle();
     setLoading(false);
+    if (error) {
+      Alert.alert('Sign In Failed', error.message);
+    }
   };
 
   // ─── Email OTP ─────────────────────────────────────────
@@ -197,18 +149,16 @@ export default function LoginScreen() {
             )}
 
             {/* Google Sign In */}
-            {googleEnabled && (
-              <TouchableOpacity
-                style={[styles.socialButton, styles.googleButton]}
-                onPress={handleGoogleSignIn}
-                disabled={loading || !googleRequest}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.googleButtonText}>
-                  Continue with Google
-                </Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={[styles.socialButton, styles.googleButton]}
+              onPress={handleGoogleSignIn}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.googleButtonText}>
+                Continue with Google
+              </Text>
+            </TouchableOpacity>
 
             {/* Email OTP */}
             <TouchableOpacity

@@ -2,7 +2,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../lib/supabase';
+
+const IS_DEV = process.env.APP_VARIANT === 'development';
+const REDIRECT_URI = `${IS_DEV ? 'setpoint-dev' : 'setpoint'}://auth/callback`;
 
 type AuthContextType = {
   session: Session | null;
@@ -10,7 +14,7 @@ type AuthContextType = {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithApple: () => Promise<{ error: Error | null }>;
-  signInWithGoogle: (idToken: string) => Promise<{ error: Error | null }>;
+  signInWithGoogle: () => Promise<{ error: Error | null }>;
   signInWithOtp: (email: string) => Promise<{ error: Error | null }>;
   verifyOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -104,16 +108,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // ─── Google Sign In (receives idToken from login screen) ─
+  // ─── Google Sign In (Supabase OAuth flow + WebBrowser) ──
 
-  const signInWithGoogle = async (
-    idToken: string,
-  ): Promise<{ error: Error | null }> => {
-    const { error } = await supabase.auth.signInWithIdToken({
-      provider: 'google',
-      token: idToken,
-    });
-    return { error };
+  const signInWithGoogle = async (): Promise<{ error: Error | null }> => {
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: REDIRECT_URI,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) return { error };
+      if (!data?.url) return { error: new Error('No OAuth URL returned') };
+
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        REDIRECT_URI,
+      );
+
+      if (result.type === 'success' && result.url) {
+        // Extract tokens from the redirect URL fragment
+        const fragment = result.url.split('#')[1];
+        if (fragment) {
+          const params = new URLSearchParams(fragment);
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
+
+          if (accessToken && refreshToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            return { error: sessionError };
+          }
+        }
+      }
+
+      // User canceled or no tokens — not an error
+      return { error: null };
+    } catch (e: any) {
+      return { error: e };
+    }
   };
 
   // ─── Email OTP (magic code) ─────────────────────────────

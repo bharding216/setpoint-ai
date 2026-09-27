@@ -346,6 +346,11 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
     setLoading(false);
   }, [user]);
 
+  const handlePreferencesChanged = useCallback(() => {
+    fetchData();
+    rebuildAIProfile();
+  }, [fetchData, rebuildAIProfile]);
+
   useFocusEffect(
     useCallback(() => {
       fetchData();
@@ -396,11 +401,6 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
       </View>
     );
   }
-
-  const handlePreferencesChanged = useCallback(() => {
-    fetchData();
-    rebuildAIProfile();
-  }, [fetchData, rebuildAIProfile]);
 
   const goals = preferences.filter((p) => p.category === 'goal');
   const prefs = preferences.filter((p) => p.category === 'preference');
