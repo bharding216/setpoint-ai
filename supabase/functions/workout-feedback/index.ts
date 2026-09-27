@@ -1,39 +1,25 @@
 // Supabase Edge Function — workout-feedback
-// Analyzes a completed workout vs history and upcoming plans.
+// Analyzes a completed workout using compact profile + recent context.
 //
-// Required secrets: OPENAI_API_KEY
+// Required secrets: OPENAI_API_KEY, SUPABASE_SERVICE_ROLE_KEY
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+import { handleCors, jsonError, jsonOk } from "../_shared/cors.ts";
+import { authenticateUser, AuthError } from "../_shared/auth.ts";
+import { checkUsageAllowance, logUsage } from "../_shared/usage.ts";
+import { loadCompactProfile, formatWorkoutHistory } from "../_shared/ai-profile.ts";
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const corsResp = handleCors(req);
+  if (corsResp) return corsResp;
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return jsonError("Missing authorization header", 401);
-    }
+    const { user, supabase, serviceClient } = await authenticateUser(req);
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    // ── Check usage limits ────────────────────────────────────
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return jsonError("Unauthorized", 401);
+    const usage = await checkUsageAllowance(serviceClient, user.id);
+    if (!usage.allowed) {
+      return jsonError(usage.reason!, 429, usage.code);
     }
 
     const body = await req.json();
@@ -42,7 +28,7 @@ Deno.serve(async (req: Request) => {
       return jsonError("workoutId is required", 400);
     }
 
-    // ── Fetch the completed workout ─────────────────────────
+    // ── Fetch the completed workout ───────────────────────────
 
     const { data: workout } = await supabase
       .from("workouts")
@@ -54,7 +40,7 @@ Deno.serve(async (req: Request) => {
           exercise_sets ( set_number, weight, reps, rpe ),
           cardio_entries ( duration_minutes, distance, pace, heart_rate, notes )
         )
-      `
+      `,
       )
       .eq("id", workoutId)
       .eq("user_id", user.id)
@@ -64,18 +50,15 @@ Deno.serve(async (req: Request) => {
       return jsonError("Workout not found", 404);
     }
 
-    // ── Fetch training preferences ──────────────────────────
+    // ── Load compact profile ──────────────────────────────────
 
-    const { data: preferences } = await supabase
-      .from("training_preferences")
-      .select("content, category")
-      .eq("user_id", user.id);
+    const profileText = await loadCompactProfile(supabase, user.id);
 
-    // ── Fetch recent history (last 4 weeks, excluding this workout) ──
+    // ── Load only last 3 workouts for comparison ──────────────
 
-    const fourWeeksAgo = new Date();
-    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
-    const sinceDate = fourWeeksAgo.toISOString().split("T")[0];
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const sinceDate = twoWeeksAgo.toISOString().split("T")[0];
 
     const { data: recentWorkouts } = await supabase
       .from("workouts")
@@ -87,19 +70,20 @@ Deno.serve(async (req: Request) => {
           exercise_sets ( set_number, weight, reps, rpe ),
           cardio_entries ( duration_minutes, distance, pace, heart_rate, notes )
         )
-      `
+      `,
       )
       .eq("user_id", user.id)
       .neq("id", workoutId)
       .in("status", ["completed", "in_progress"])
       .gte("date", sinceDate)
       .order("date", { ascending: false })
-      .limit(15);
+      .limit(3);
 
-    // ── Fetch upcoming planned workouts ─────────────────────
+    const historyText = formatWorkoutHistory(recentWorkouts ?? []);
+
+    // ── Upcoming planned workouts (limit 3) ───────────────────
 
     const todayStr = new Date().toISOString().split("T")[0];
-
     const { data: upcomingPlans } = await supabase
       .from("workouts")
       .select(
@@ -109,28 +93,15 @@ Deno.serve(async (req: Request) => {
           name, exercise_type, is_planned, exercise_order,
           exercise_sets ( set_number, weight, reps )
         )
-      `
+      `,
       )
       .eq("user_id", user.id)
       .eq("status", "planned")
       .gte("date", todayStr)
       .order("date", { ascending: true })
-      .limit(7);
+      .limit(3);
 
-    // ── Weekly schedule ─────────────────────────────────────
-
-    const { data: schedule } = await supabase
-      .from("weekly_schedule")
-      .select("day_of_week, session_type")
-      .eq("user_id", user.id)
-      .order("day_of_week");
-
-    const dayNames = [
-      "Sunday", "Monday", "Tuesday", "Wednesday",
-      "Thursday", "Friday", "Saturday",
-    ];
-
-    // ── Format the completed workout ────────────────────────
+    // ── Format the completed workout ──────────────────────────
 
     const formatExercises = (exercises: any[], onlyActual: boolean) => {
       const filtered = onlyActual
@@ -150,101 +121,58 @@ Deno.serve(async (req: Request) => {
             return "  " + parts.join(", ");
           }
           const sets = (e.exercise_sets ?? []).sort(
-            (a: any, b: any) => a.set_number - b.set_number
+            (a: any, b: any) => a.set_number - b.set_number,
           );
           if (sets.length === 0) return `  ${e.name}: no sets`;
           const setStrs = sets.map((s: any) => {
             let str = "";
             if (s.weight != null) str += `${s.weight}`;
-            if (s.reps != null) str += `×${s.reps}`;
+            if (s.reps != null) str += `\u00d7${s.reps}`;
             if (s.rpe != null) str += ` @${s.rpe}`;
-            return str || "—";
+            return str || "\u2014";
           });
           return `  ${e.name}: ${setStrs.join(", ")}`;
         })
         .join("\n");
     };
 
-    const completedPlanned = formatExercises(
-      workout.workout_exercises ?? [],
-      false
-    );
     const completedActual = formatExercises(
       (workout.workout_exercises ?? []).filter((e: any) => !e.is_planned),
-      false
+      false,
     );
     const completedPlannedOnly = formatExercises(
       (workout.workout_exercises ?? []).filter((e: any) => e.is_planned),
-      false
+      false,
     );
 
-    // ── Format history ──────────────────────────────────────
-
-    const historyLines: string[] = [];
-    for (const w of recentWorkouts ?? []) {
-      const actual = (w.workout_exercises ?? []).filter(
-        (e: any) => !e.is_planned
-      );
-      if (actual.length === 0) continue;
-      historyLines.push(`${w.date} — ${w.type ?? "Workout"}`);
-      historyLines.push(formatExercises(actual, false));
-      historyLines.push("");
-    }
-
-    // ── Format upcoming plans ───────────────────────────────
-
+    // Format upcoming plans
     const upcomingLines: string[] = [];
     for (const w of upcomingPlans ?? []) {
       const planned = (w.workout_exercises ?? []).filter(
-        (e: any) => e.is_planned
+        (e: any) => e.is_planned,
       );
       if (planned.length === 0) continue;
-      upcomingLines.push(`${w.date} — ${w.type ?? "Workout"} (planned)`);
+      upcomingLines.push(
+        `${w.date} \u2014 ${w.type ?? "Workout"} (planned)`,
+      );
       upcomingLines.push(formatExercises(planned, false));
       upcomingLines.push("");
     }
 
-    // ── Build prompt ────────────────────────────────────────
-
-    const goalsText =
-      preferences
-        ?.filter((p: any) => p.category === "goal")
-        .map((p: any) => `  - ${p.content}`)
-        .join("\n") || "  (No goals set)";
-
-    const prefsText =
-      preferences
-        ?.filter((p: any) => p.category === "preference")
-        .map((p: any) => `  - ${p.content}`)
-        .join("\n") || "  (No preferences set)";
-
-    const scheduleText =
-      schedule && schedule.length > 0
-        ? schedule
-            .map(
-              (s: any) => `  ${dayNames[s.day_of_week]}: ${s.session_type}`
-            )
-            .join("\n")
-        : "  (No schedule set)";
+    // ── Build prompt ──────────────────────────────────────────
 
     const systemPrompt = `You are Setpoint, an AI personal training coach. The user just completed a workout. Analyze it and provide feedback.
 
-GOALS:
-${goalsText}
+USER PROFILE:
+${profileText}
 
-TRAINING PREFERENCES:
-${prefsText}
-
-WEEKLY SCHEDULE:
-${scheduleText}
-
-COMPLETED WORKOUT — ${workout.date} — ${workout.type ?? "Workout"}
+COMPLETED WORKOUT \u2014 ${workout.date} \u2014 ${workout.type ?? "Workout"}
 ${completedPlannedOnly ? `Planned:\n${completedPlannedOnly}` : ""}
 Actual:
 ${completedActual || "  (no exercises logged)"}
 
 RECENT HISTORY (for comparison):
-${historyLines.length > 0 ? historyLines.join("\n") : "(No prior workouts)"}
+${historyText}
 
 UPCOMING PLANNED WORKOUTS:
 ${upcomingLines.length > 0 ? upcomingLines.join("\n") : "(No upcoming plans)"}
@@ -252,7 +180,7 @@ ${upcomingLines.length > 0 ? upcomingLines.join("\n") : "(No upcoming plans)"}
 INSTRUCTIONS:
 1. Compare what they planned vs what they actually did. Note any deviations.
 2. Compare today's performance to recent history for the same exercises. Note progression, regression, or plateaus.
-3. Evaluate recovery implications — did they push hard? Will they need extra recovery?
+3. Evaluate recovery implications \u2014 did they push hard? Will they need extra recovery?
 4. Look at upcoming planned workouts and recommend adjustments if needed based on today's effort.
 5. Keep the tone encouraging and coach-like. Be specific with numbers.
 6. If there are upcoming plans that should be adjusted, explain why and what to change.
@@ -274,7 +202,7 @@ Respond with ONLY valid JSON (no markdown, no code fences):
 
 If no plan adjustments are needed, return an empty array for plan_adjustments.`;
 
-    // ── Call OpenAI ──────────────────────────────────────────
+    // ── Call OpenAI ────────────────────────────────────────────
 
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
     if (!openaiKey) {
@@ -295,13 +223,14 @@ If no plan adjustments are needed, return an empty array for plan_adjustments.`;
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: "How did my workout go? Should I adjust anything coming up?",
+              content:
+                "How did my workout go? Should I adjust anything coming up?",
             },
           ],
           temperature: 0.7,
           max_tokens: 1200,
         }),
-      }
+      },
     );
 
     if (!openaiResponse.ok) {
@@ -317,6 +246,18 @@ If no plan adjustments are needed, return an empty array for plan_adjustments.`;
       return jsonError("Empty AI response", 502);
     }
 
+    // ── Log usage ─────────────────────────────────────────────
+
+    await logUsage(
+      serviceClient,
+      user.id,
+      "workout-feedback",
+      "gpt-4o",
+      aiData.usage ?? {},
+    );
+
+    // ── Parse response ────────────────────────────────────────
+
     let feedback;
     try {
       const cleaned = content
@@ -329,18 +270,12 @@ If no plan adjustments are needed, return an empty array for plan_adjustments.`;
       return jsonError("Could not parse AI response", 502);
     }
 
-    return new Response(JSON.stringify(feedback), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonOk(feedback);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return jsonError(err.message, err.status);
+    }
     console.error("Edge function error:", err);
     return jsonError("Internal server error", 500);
   }
 });
-
-function jsonError(message: string, status: number) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}

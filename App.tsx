@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { SubscriptionProvider } from './src/contexts/SubscriptionContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
 SplashScreen.preventAutoHideAsync();
@@ -14,8 +15,10 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <AppNavigator />
-          <StatusBar style="light" />
+          <SubscriptionProvider>
+            <AppNavigator />
+            <StatusBar style="light" />
+          </SubscriptionProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

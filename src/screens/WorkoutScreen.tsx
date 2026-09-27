@@ -546,12 +546,21 @@ export default function WorkoutScreen({
     setShowFeedback(true);
 
     try {
+      // Rebuild AI profile in the background (don't await — fire and forget)
+      supabase.functions.invoke('rebuild-ai-profile', { body: {} }).catch(() => {});
+
       const { data, error: fbError } = await supabase.functions.invoke(
         'workout-feedback',
         { body: { workoutId } },
       );
       if (fbError) throw fbError;
-      setFeedback(data);
+
+      // Handle usage limit — still show completion modal but without AI feedback
+      if (data?.code === 'AI_LIMIT_REACHED' || data?.code === 'COST_LIMIT_REACHED') {
+        setFeedback(null);
+      } else {
+        setFeedback(data);
+      }
       if (user) maybeRequestReview(user.id);
     } catch (err: any) {
       console.warn('Feedback failed:', err.message);

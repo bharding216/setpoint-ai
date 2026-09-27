@@ -16,11 +16,13 @@ import HistoryScreen from '../screens/HistoryScreen';
 import ProgressScreen from '../screens/ProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import ImportScreen from '../screens/ImportScreen';
+import PaywallScreen from '../screens/PaywallScreen';
 
 export type RootStackParamList = {
   MainTabs: undefined;
   WorkoutScreen: { workoutId: string; mode?: 'log' | 'plan' };
   ImportScreen: undefined;
+  PaywallScreen: undefined;
   Login: undefined;
 };
 
@@ -153,6 +155,19 @@ export default function AppNavigator() {
                 headerTitleStyle: { color: colors.text },
                 headerShadowVisible: false,
                 presentation: 'card',
+              }}
+            />
+            <RootStack.Screen
+              name="PaywallScreen"
+              component={PaywallScreen}
+              options={{
+                headerShown: true,
+                title: '',
+                headerBackTitle: 'Back',
+                headerStyle: { backgroundColor: colors.background },
+                headerTintColor: colors.text,
+                headerShadowVisible: false,
+                presentation: 'modal',
               }}
             />
           </>

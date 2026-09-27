@@ -1,39 +1,24 @@
 // Supabase Edge Function — import-workouts
 // Parses a CSV of workout history using AI and returns structured records.
 //
-// Required secrets: OPENAI_API_KEY
+// Required secrets: OPENAI_API_KEY, SUPABASE_SERVICE_ROLE_KEY
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+import { handleCors, jsonError, jsonOk } from "../_shared/cors.ts";
+import { authenticateUser, AuthError } from "../_shared/auth.ts";
+import { checkUsageAllowance, logUsage } from "../_shared/usage.ts";
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const corsResp = handleCors(req);
+  if (corsResp) return corsResp;
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return jsonError("Missing authorization header", 401);
-    }
+    const { user, serviceClient } = await authenticateUser(req);
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    // ── Check usage limits ────────────────────────────────────
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return jsonError("Unauthorized", 401);
+    const usage = await checkUsageAllowance(serviceClient, user.id);
+    if (!usage.allowed) {
+      return jsonError(usage.reason!, 429, usage.code);
     }
 
     const body = await req.json();
@@ -42,15 +27,14 @@ Deno.serve(async (req: Request) => {
       return jsonError("csv content is required", 400);
     }
 
-    // Truncate to meaningful rows (skip rows that are all empty after the date)
+    // Truncate to meaningful rows (skip rows that are all empty after the header)
     const lines = csvContent.split("\n");
     const meaningfulLines = [lines[0]]; // header
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(",");
-      // A row is meaningful if it has at least a category or exercise
-      const hasData = cols.slice(1).some(
-        (c) => c.replace(/"/g, "").trim().length > 0
-      );
+      const hasData = cols
+        .slice(1)
+        .some((c) => c.replace(/"/g, "").trim().length > 0);
       if (hasData) {
         meaningfulLines.push(lines[i]);
       }
@@ -135,7 +119,7 @@ Respond with ONLY valid JSON (no markdown, no code fences):
           temperature: 0.2,
           max_tokens: 8000,
         }),
-      }
+      },
     );
 
     if (!openaiResponse.ok) {
@@ -150,6 +134,18 @@ Respond with ONLY valid JSON (no markdown, no code fences):
     if (!content) {
       return jsonError("Empty AI response", 502);
     }
+
+    // ── Log usage ─────────────────────────────────────────────
+
+    await logUsage(
+      serviceClient,
+      user.id,
+      "import-workouts",
+      "gpt-4o",
+      aiData.usage ?? {},
+    );
+
+    // ── Parse response ────────────────────────────────────────
 
     let result;
     try {
@@ -167,18 +163,12 @@ Respond with ONLY valid JSON (no markdown, no code fences):
       return jsonError("Invalid response structure", 502);
     }
 
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonOk(result);
   } catch (err) {
+    if (err instanceof AuthError) {
+      return jsonError(err.message, err.status);
+    }
     console.error("Edge function error:", err);
     return jsonError("Internal server error", 500);
   }
 });
-
-function jsonError(message: string, status: number) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}

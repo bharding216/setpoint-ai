@@ -12,6 +12,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { useAuth } from '../contexts/AuthContext';
+import { useSubscription } from '../contexts/SubscriptionContext';
 import { supabase } from '../lib/supabase';
 import { colors, spacing } from '../theme';
 import {
@@ -306,11 +307,17 @@ function PreferenceSection({
 
 export default function SettingsScreen({ navigation }: { navigation: any }) {
   const { user, signOut } = useAuth();
+  const { tier, isTrialing, trialEndsAt, aiSessionsUsed, aiSessionsLimit, manageSubscription } = useSubscription();
   const [schedule, setSchedule] = useState<(WeeklyScheduleEntry | null)[]>(
     Array(7).fill(null),
   );
   const [preferences, setPreferences] = useState<TrainingPreference[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const rebuildAIProfile = useCallback(() => {
+    // Fire-and-forget: rebuild the compact AI profile whenever settings change
+    supabase.functions.invoke('rebuild-ai-profile', { body: {} }).catch(() => {});
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -355,7 +362,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
           .from('weekly_schedule')
           .delete()
           .eq('id', existing.id);
-        fetchData();
+        handlePreferencesChanged();
       }
       return;
     }
@@ -372,7 +379,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
         session_type: sessionType,
       });
     }
-    fetchData();
+    handlePreferencesChanged();
   };
 
   const handleLogout = () => {
@@ -389,6 +396,11 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
       </View>
     );
   }
+
+  const handlePreferencesChanged = useCallback(() => {
+    fetchData();
+    rebuildAIProfile();
+  }, [fetchData, rebuildAIProfile]);
 
   const goals = preferences.filter((p) => p.category === 'goal');
   const prefs = preferences.filter((p) => p.category === 'preference');
@@ -412,7 +424,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
         category="goal"
         items={goals}
         userId={user!.id}
-        onChanged={fetchData}
+        onChanged={handlePreferencesChanged}
         presets={GOAL_PRESETS}
       />
 
@@ -422,7 +434,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
         category="preference"
         items={prefs}
         userId={user!.id}
-        onChanged={fetchData}
+        onChanged={handlePreferencesChanged}
         presets={PREFERENCE_PRESETS}
       />
 
@@ -432,7 +444,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
         category="equipment"
         items={equipment}
         userId={user!.id}
-        onChanged={fetchData}
+        onChanged={handlePreferencesChanged}
         presets={EQUIPMENT_PRESETS}
       />
 
@@ -446,6 +458,49 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
         >
           <Text style={styles.importButtonText}>Import Workout History (CSV)</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Subscription */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>Subscription</Text>
+        <View style={styles.subscriptionCard}>
+          <Text style={styles.subscriptionTier}>
+            {tier === 'plus' ? 'Setpoint+' : 'Free'}
+            {isTrialing && trialEndsAt && (
+              <Text style={styles.subscriptionTrialBadge}>
+                {' '}(Trial \u2014 {Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000))} days left)
+              </Text>
+            )}
+          </Text>
+          {aiSessionsLimit != null && (
+            <Text style={styles.subscriptionUsage}>
+              AI sessions: {aiSessionsUsed} / {aiSessionsLimit} this month
+            </Text>
+          )}
+          {tier === 'plus' && !aiSessionsLimit && (
+            <Text style={styles.subscriptionUsage}>
+              Unlimited AI coaching
+            </Text>
+          )}
+        </View>
+        {tier === 'free' && (
+          <TouchableOpacity
+            style={styles.upgradeButton}
+            onPress={() => navigation.getParent()?.navigate('PaywallScreen')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.upgradeButtonText}>Upgrade to Setpoint+</Text>
+          </TouchableOpacity>
+        )}
+        {tier === 'plus' && (
+          <TouchableOpacity
+            style={styles.manageButton}
+            onPress={manageSubscription}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.manageButtonText}>Manage Subscription</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Account */}
@@ -610,6 +665,53 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   prefAddButtonText: { color: '#fff', fontSize: 20, fontWeight: '600' },
+
+  // Subscription
+  subscriptionCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  subscriptionTier: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  subscriptionTrialBadge: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.warning,
+  },
+  subscriptionUsage: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  upgradeButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    padding: spacing.md,
+    alignItems: 'center',
+  },
+  upgradeButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  manageButton: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: spacing.md,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  manageButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '500',
+  },
 
   // Import
   importButton: {

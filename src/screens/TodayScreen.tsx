@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '../contexts/AuthContext';
+import { useSubscription } from '../contexts/SubscriptionContext';
 import { supabase } from '../lib/supabase';
 import { colors, spacing } from '../theme';
 import {
@@ -27,6 +28,7 @@ type PlannedExercise = WorkoutExercise & { sets: ExerciseSet[] };
 
 export default function TodayScreen({ navigation }: { navigation: any }) {
   const { user } = useAuth();
+  const { isTrialing, trialEndsAt, tier, aiSessionsUsed, aiSessionsLimit, refreshSubscription } = useSubscription();
   const insets = useSafeAreaInsets();
   const [todayWorkout, setTodayWorkout] = useState<Workout | null>(null);
   const [plannedExercises, setPlannedExercises] = useState<PlannedExercise[]>(
@@ -127,6 +129,29 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
         { body: { date: dateStr } },
       );
       if (error) throw error;
+
+      // Handle usage limit errors — prompt upgrade
+      if (data?.error && data?.code === 'AI_LIMIT_REACHED') {
+        Alert.alert(
+          'AI Limit Reached',
+          data.error,
+          [
+            { text: 'OK', style: 'cancel' },
+            {
+              text: 'Upgrade',
+              onPress: () => navigation.getParent()?.navigate('PaywallScreen'),
+            },
+          ],
+        );
+        setAiLoading(false);
+        return;
+      }
+      if (data?.error && data?.code === 'COST_LIMIT_REACHED') {
+        Alert.alert('Unavailable', data.error);
+        setAiLoading(false);
+        return;
+      }
+
       if (!data?.workout) throw new Error('No workout returned from AI');
 
       const { data: workout, error: workoutError } = await supabase
@@ -187,6 +212,7 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
       }
 
       await fetchData();
+      refreshSubscription(); // Update AI session counter
     } catch (error: any) {
       Alert.alert(
         'Error',
@@ -301,6 +327,28 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
       {schedule && (
         <View style={styles.scheduleChip}>
           <Text style={styles.scheduleText}>{schedule.session_type}</Text>
+        </View>
+      )}
+
+      {/* Trial banner */}
+      {isTrialing && trialEndsAt && (
+        <TouchableOpacity
+          style={styles.trialBanner}
+          onPress={() => navigation.getParent()?.navigate('PaywallScreen')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.trialBannerText}>
+            Setpoint+ trial ends in {Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000))} days
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* AI usage counter (free tier only) */}
+      {tier === 'free' && aiSessionsLimit != null && (
+        <View style={styles.usageChip}>
+          <Text style={styles.usageChipText}>
+            AI: {aiSessionsUsed}/{aiSessionsLimit} this month
+          </Text>
         </View>
       )}
 
@@ -471,6 +519,32 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   scheduleText: { color: colors.primary, fontWeight: '600', fontSize: 14 },
+  trialBanner: {
+    backgroundColor: colors.warning + '18',
+    borderRadius: 8,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
+  },
+  trialBannerText: {
+    color: colors.warning,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  usageChip: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
+  },
+  usageChipText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '500',
+  },
   summaryCard: {
     backgroundColor: colors.surface,
     borderRadius: 12,

@@ -17,6 +17,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: BUNDLE_ID,
+    usesAppleSignIn: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
     },
@@ -42,12 +43,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         imageWidth: 256,
       },
     ],
-    [
-      'expo-audio',
-      {
-        microphonePermission: false,
-      },
-    ],
+    'expo-apple-authentication',
+    'expo-web-browser',
   ],
   updates: {
     url: 'https://u.expo.dev/4f6e2b3a-633f-4a53-9955-625ef8099684',
