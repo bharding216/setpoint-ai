@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -39,117 +39,6 @@ type WorkoutFeedback = {
   plan_adjustments: PlanAdjustment[];
   coach_tip: string;
 };
-
-// ─── Rest Timer ─────────────────────────────────────────────
-const REST_PRESETS = [30, 60, 90, 120, 180];
-
-function RestTimer({ onDismiss }: { onDismiss: () => void }) {
-  const [duration, setDuration] = useState(90);
-  const [remaining, setRemaining] = useState(90);
-  const [running, setRunning] = useState(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (running && remaining > 0) {
-      intervalRef.current = setInterval(() => {
-        setRemaining((prev) => {
-          if (prev <= 1) {
-            clearInterval(intervalRef.current!);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setRunning(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [running, remaining]);
-
-  const selectDuration = (secs: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setDuration(secs);
-    setRemaining(secs);
-    setRunning(true);
-  };
-
-  const togglePause = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (remaining === 0) {
-      setRemaining(duration);
-      setRunning(true);
-    } else {
-      setRunning((prev) => !prev);
-    }
-  };
-
-  const dismiss = () => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    onDismiss();
-  };
-
-  const mins = Math.floor(remaining / 60);
-  const secs = remaining % 60;
-  const progress = duration > 0 ? remaining / duration : 0;
-  const isFinished = remaining === 0;
-
-  return (
-    <View style={timerStyles.container}>
-      <View
-        style={[
-          timerStyles.progressBar,
-          {
-            width: `${progress * 100}%`,
-            backgroundColor: isFinished ? colors.success : colors.primary,
-          },
-        ]}
-      />
-      <View style={timerStyles.content}>
-        <View style={timerStyles.presets}>
-          {REST_PRESETS.map((s) => (
-            <TouchableOpacity
-              key={s}
-              style={[
-                timerStyles.presetChip,
-                duration === s && timerStyles.presetChipActive,
-              ]}
-              onPress={() => selectDuration(s)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  timerStyles.presetText,
-                  duration === s && timerStyles.presetTextActive,
-                ]}
-              >
-                {s >= 60 ? `${s / 60}m` : `${s}s`}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={timerStyles.controls}>
-          <TouchableOpacity onPress={togglePause} activeOpacity={0.7}>
-            <Text
-              style={[
-                timerStyles.time,
-                isFinished && { color: colors.success },
-              ]}
-            >
-              {isFinished
-                ? 'Done!'
-                : `${mins}:${secs.toString().padStart(2, '0')}`}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={dismiss} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Text style={timerStyles.dismiss}>✕</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
-}
 
 // ─── Set Row ────────────────────────────────────────────────
 function SetRow({
@@ -400,8 +289,6 @@ export default function WorkoutScreen({
   const [feedback, setFeedback] = useState<WorkoutFeedback | null>(null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [showRestTimer, setShowRestTimer] = useState(false);
-
   const fetchExercises = useCallback(async () => {
     const { data: workout } = await supabase
       .from('workouts')
@@ -474,7 +361,6 @@ export default function WorkoutScreen({
     });
     if (error) Alert.alert('Error', error.message);
     else {
-      if (!isPlanning) setShowRestTimer(true);
       fetchExercises();
     }
   };
@@ -531,7 +417,6 @@ export default function WorkoutScreen({
 
   const finishWorkout = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setShowRestTimer(false);
 
     const { error } = await supabase
       .from('workouts')
@@ -720,21 +605,6 @@ export default function WorkoutScreen({
         </TouchableOpacity>
       )}
 
-      {!isPlanning && (
-        <TouchableOpacity
-          style={styles.timerToggleButton}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setShowRestTimer((prev) => !prev);
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.timerToggleText}>
-            {showRestTimer ? 'Hide Rest Timer' : '⏱ Rest Timer'}
-          </Text>
-        </TouchableOpacity>
-      )}
-
       {isPlanning ? (
         <TouchableOpacity
           style={styles.savePlanButton}
@@ -753,13 +623,13 @@ export default function WorkoutScreen({
         </TouchableOpacity>
       )}
 
-      <View style={{ height: showRestTimer ? 120 : spacing.xl * 3 }} />
+      <View style={{ height: spacing.xl * 3 }} />
     </View>
   );
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: colors.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={100}
     >
@@ -865,79 +735,9 @@ export default function WorkoutScreen({
         activationDistance={10}
       />
 
-      {showRestTimer && (
-        <RestTimer onDismiss={() => setShowRestTimer(false)} />
-      )}
     </KeyboardAvoidingView>
   );
 }
-
-// ─── Rest Timer Styles ──────────────────────────────────────
-const timerStyles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    height: 3,
-  },
-  content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
-  presets: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  presetChip: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-    borderRadius: 16,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  presetChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  presetText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  presetTextActive: {
-    color: '#fff',
-  },
-  controls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  time: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  dismiss: {
-    fontSize: 18,
-    color: colors.textTertiary,
-    padding: spacing.sm,
-  },
-});
 
 // ─── Main Styles ────────────────────────────────────────────
 const styles = StyleSheet.create({
@@ -1166,17 +966,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   addButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-
-  timerToggleButton: {
-    alignItems: 'center',
-    padding: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  timerToggleText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
 
   finishButton: {
     backgroundColor: colors.success,

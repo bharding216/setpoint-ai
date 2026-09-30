@@ -32,6 +32,10 @@ const GOAL_PRESETS = [
   'Lose body fat while maintaining strength',
   'Improve mobility and flexibility',
   'Train for a 5K / 10K / half marathon',
+  'Complete a triathlon (sprint / Olympic / Ironman)',
+  'Improve swim endurance and technique',
+  'Bike a century ride (100 mi)',
+  'Improve cycling FTP / power output',
 ];
 
 const PREFERENCE_PRESETS = [
@@ -45,6 +49,10 @@ const PREFERENCE_PRESETS = [
   'I prefer HIIT over steady-state cardio',
   'No exercises that load the lower back heavily',
   'Prioritize recovery and avoid overtraining',
+  'I enjoy multi-sport / cross-training',
+  'Include swimming in my weekly training',
+  'Include cycling in my weekly training',
+  'I train for triathlon (swim / bike / run)',
 ];
 
 const EQUIPMENT_PRESETS = [
@@ -67,6 +75,13 @@ const EQUIPMENT_PRESETS = [
   'EZ curl bar',
   'Leg press',
   'Lat pulldown machine',
+  'Road bike',
+  'Indoor bike trainer',
+  'Pool access',
+  'Open water access',
+  'Swim goggles / gear',
+  'Cycling power meter',
+  'Heart rate monitor',
 ];
 
 const SCHEDULE_PRESETS = [
@@ -85,6 +100,14 @@ const SCHEDULE_PRESETS = [
   'Yoga / Mobility',
   'Recovery',
   'Rest',
+  'Easy Bike',
+  'Hard Bike',
+  'Long Ride',
+  'Pool Swim',
+  'Open Water Swim',
+  'Swim Drills',
+  'Brick (Bike + Run)',
+  'Cross-Training',
 ];
 
 // ─── Schedule Row ───────────────────────────────────────────

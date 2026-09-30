@@ -84,7 +84,7 @@ export default function PaywallScreen({
   // If already subscribed, show a confirmation instead
   if (tier === 'plus' && !isTrialing) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.container}>
         <View style={styles.centered}>
           <Text style={styles.activeTitle}>You're on Setpoint+</Text>
           <Text style={styles.activeSubtitle}>
@@ -107,7 +107,7 @@ export default function PaywallScreen({
       style={styles.container}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl * 2 },
+        { paddingTop: spacing.lg, paddingBottom: insets.bottom + spacing.xl * 2 },
       ]}
     >
       {/* Header */}
@@ -149,7 +149,7 @@ export default function PaywallScreen({
           <Text style={styles.tierLabel}>Free</Text>
           {FEATURES_FREE.map((f) => (
             <View key={f} style={styles.featureRow}>
-              <Text style={styles.checkFree}>{'  \u2713'}</Text>
+              <Text style={styles.checkFree}>{'\u2713'}</Text>
               <Text style={styles.featureText}>{f}</Text>
             </View>
           ))}
@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
   },
   featureRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: spacing.sm,
   },
   checkFree: {
