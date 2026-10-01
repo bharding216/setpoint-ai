@@ -9,6 +9,9 @@ import { authenticateUser, AuthError } from "../_shared/auth.ts";
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 const STRIPE_API = "https://api.stripe.com/v1";
 
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const REDIRECT_BASE = `${SUPABASE_URL}/functions/v1/stripe-redirect`;
+
 // Stripe price IDs — managed server-side so app updates aren't needed to change pricing
 const STRIPE_PRICES: Record<string, string> = {
   monthly: Deno.env.get("STRIPE_PRICE_MONTHLY") ?? "price_1UJgQVEl9L4ZwAwOy7f80SAy",
@@ -99,8 +102,8 @@ Deno.serve(async (req: Request) => {
       "line_items[0][quantity]": "1",
       "subscription_data[trial_period_days]": "7",
       "subscription_data[metadata][supabase_user_id]": user.id,
-      success_url: "https://setpoint.ai/success?session_id={CHECKOUT_SESSION_ID}",
-      cancel_url: "https://setpoint.ai/cancel",
+      success_url: `${REDIRECT_BASE}?status=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${REDIRECT_BASE}?status=cancel`,
       "metadata[supabase_user_id]": user.id,
     });
 
