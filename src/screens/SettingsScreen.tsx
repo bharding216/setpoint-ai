@@ -330,12 +330,13 @@ function PreferenceSection({
 
 export default function SettingsScreen({ navigation }: { navigation: any }) {
   const { user, signOut } = useAuth();
-  const { tier, isTrialing, trialEndsAt, aiSessionsUsed, aiSessionsLimit, manageSubscription } = useSubscription();
+  const { tier, isTrialing, trialEndsAt, aiSessionsUsed, aiSessionsLimit, manageSubscription, refreshSubscription } = useSubscription();
   const [schedule, setSchedule] = useState<(WeeklyScheduleEntry | null)[]>(
     Array(7).fill(null),
   );
   const [preferences, setPreferences] = useState<TrainingPreference[]>([]);
   const [loading, setLoading] = useState(true);
+  const [resettingAI, setResettingAI] = useState(false);
 
   const rebuildAIProfile = useCallback(() => {
     // Fire-and-forget: rebuild the compact AI profile whenever settings change
@@ -415,6 +416,39 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Log Out', style: 'destructive', onPress: signOut },
     ]);
+  };
+
+  const handleResetAISessions = () => {
+    Alert.alert(
+      'Reset AI Sessions',
+      `This will reset your session counter from ${aiSessionsUsed} back to 0. Use this to re-test the AI usage limit flow.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          onPress: async () => {
+            if (!user) return;
+            setResettingAI(true);
+            try {
+              const { error } = await supabase
+                .from('profiles')
+                .update({ ai_sessions_this_month: 0 })
+                .eq('id', user.id);
+              if (error) {
+                Alert.alert('Error', error.message);
+              } else {
+                await refreshSubscription();
+                Alert.alert('Done', 'AI session counter reset to 0.');
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err.message ?? 'Failed to reset');
+            } finally {
+              setResettingAI(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   if (loading) {
@@ -538,6 +572,33 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Developer Tools (dev builds only) */}
+      {__DEV__ && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>
+            Developer Tools
+          </Text>
+          <View style={styles.devToolsCard}>
+            <Text style={styles.devToolsLabel}>
+              AI Sessions: {aiSessionsUsed}
+              {aiSessionsLimit != null ? ` / ${aiSessionsLimit}` : ' (unlimited)'}
+            </Text>
+            <TouchableOpacity
+              style={[styles.devResetButton, resettingAI && { opacity: 0.5 }]}
+              onPress={handleResetAISessions}
+              activeOpacity={0.8}
+              disabled={resettingAI}
+            >
+              {resettingAI ? (
+                <ActivityIndicator size="small" color={colors.warning} />
+              ) : (
+                <Text style={styles.devResetButtonText}>Reset AI Sessions</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* App Info */}
       <View style={styles.versionContainer}>
@@ -758,6 +819,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoutText: { color: colors.error, fontSize: 16, fontWeight: '600' },
+
+  // Developer Tools
+  devToolsCard: {
+    backgroundColor: colors.warning + '10',
+    borderRadius: 12,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.warning + '30',
+  },
+  devToolsLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  devResetButton: {
+    backgroundColor: colors.warning + '18',
+    borderRadius: 8,
+    padding: spacing.sm,
+    alignItems: 'center',
+  },
+  devResetButtonText: {
+    color: colors.warning,
+    fontSize: 14,
+    fontWeight: '600',
+  },
 
   // Version
   versionContainer: {

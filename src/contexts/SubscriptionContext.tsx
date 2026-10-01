@@ -36,7 +36,7 @@ type SubscriptionContextType = {
   offerings: PurchasesOfferings | null;
   offeringsLoading: boolean;
   purchaseWithApple: (pkg: PurchasesPackage) => Promise<{ error: Error | null }>;
-  purchaseOnWeb: () => Promise<{ error: Error | null }>;
+  purchaseOnWeb: (plan?: 'monthly' | 'annual') => Promise<{ error: Error | null }>;
   restorePurchases: () => Promise<{ error: Error | null }>;
   refreshSubscription: () => Promise<void>;
   manageSubscription: () => void;
@@ -168,15 +168,25 @@ export function SubscriptionProvider({
     pkg: PurchasesPackage,
   ): Promise<{ error: Error | null }> => {
     try {
+      console.log('[IAP] Starting purchase for product:', pkg.product.identifier);
       const { customerInfo } = await Purchases.purchasePackage(pkg);
+      console.log('[IAP] Purchase completed. Active entitlements:', Object.keys(customerInfo.entitlements.active));
 
       if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
         await refreshSubscription();
         return { error: null };
       }
 
-      return { error: null };
+      // Purchase went through but entitlement not active — likely a config mismatch
+      console.warn('[IAP] Purchase succeeded but entitlement not found:', ENTITLEMENT_ID);
+      return {
+        error: new Error(
+          `Purchase completed but your subscription wasn't activated. ` +
+          `Please tap "Restore Purchases" or contact support.`,
+        ),
+      };
     } catch (err: any) {
+      console.warn('[IAP] Purchase error:', err.code, err.message, JSON.stringify(err));
       if (err.userCancelled) {
         return { error: null };
       }
@@ -186,14 +196,14 @@ export function SubscriptionProvider({
 
   // ─── Purchase via Stripe (web) ────────────────────────────
 
-  const purchaseOnWeb = async (): Promise<{ error: Error | null }> => {
+  const purchaseOnWeb = async (
+    plan: 'monthly' | 'annual' = 'monthly',
+  ): Promise<{ error: Error | null }> => {
     try {
       const { data, error } = await supabase.functions.invoke(
         'create-checkout-session',
         {
-          body: {
-            priceId: process.env.EXPO_PUBLIC_STRIPE_PRICE_ID ?? '',
-          },
+          body: { plan },
         },
       );
 

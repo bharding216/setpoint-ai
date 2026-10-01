@@ -64,19 +64,22 @@ export default function PaywallScreen({
       Alert.alert('Error', 'No subscription package available. Please try again later.');
       return;
     }
+    console.log('[Paywall] Starting Apple purchase, product:', pkg.product.identifier, 'price:', pkg.product.priceString);
     setLoading('apple');
     const { error } = await purchaseWithApple(pkg);
     setLoading(null);
     if (error) {
+      console.log('[Paywall] Purchase failed:', error.message);
       Alert.alert('Purchase Failed', error.message);
     } else {
+      console.log('[Paywall] Purchase succeeded, navigating back');
       navigation.goBack();
     }
   };
 
   const handleWebPurchase = async () => {
     setLoading('web');
-    const { error } = await purchaseOnWeb();
+    const { error } = await purchaseOnWeb(selectedPlan);
     setLoading(null);
     if (error) {
       Alert.alert('Error', error.message);

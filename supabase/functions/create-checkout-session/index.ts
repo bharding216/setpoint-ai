@@ -9,6 +9,12 @@ import { authenticateUser, AuthError } from "../_shared/auth.ts";
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 const STRIPE_API = "https://api.stripe.com/v1";
 
+// Stripe price IDs — managed server-side so app updates aren't needed to change pricing
+const STRIPE_PRICES: Record<string, string> = {
+  monthly: Deno.env.get("STRIPE_PRICE_MONTHLY") ?? "price_1UJgQVEl9L4ZwAwOy7f80SAy",
+  annual: Deno.env.get("STRIPE_PRICE_ANNUAL") ?? "price_1ULmd3El9L4ZwAwOYPHzybVJ",
+};
+
 Deno.serve(async (req: Request) => {
   const corsResp = handleCors(req);
   if (corsResp) return corsResp;
@@ -73,13 +79,15 @@ Deno.serve(async (req: Request) => {
     }
 
     // Create Checkout session
-    // The price ID should be created in Stripe Dashboard for $9.99/month with 7-day trial
     const body = await req.json().catch(() => ({}));
-    const priceId = body.priceId;
+
+    // Accept either a plan name ("monthly" | "annual") or a legacy priceId
+    const plan: string = body.plan ?? "";
+    const priceId = STRIPE_PRICES[plan] ?? body.priceId ?? "";
 
     if (!priceId) {
       return jsonError(
-        "priceId is required. Create a $9.99/month price in Stripe Dashboard and pass its ID.",
+        'plan is required. Pass { plan: "monthly" } or { plan: "annual" }.',
         400,
       );
     }
