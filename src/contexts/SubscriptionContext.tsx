@@ -8,6 +8,7 @@ import React, {
 import { Platform, Alert, Linking } from 'react-native';
 import Purchases, {
   PurchasesPackage,
+  PurchasesOfferings,
   CustomerInfo,
   LOG_LEVEL,
 } from 'react-native-purchases';
@@ -22,6 +23,8 @@ import {
 const REVENUE_CAT_KEY =
   process.env.EXPO_PUBLIC_REVENUE_CAT_PUBLIC_KEY ?? '';
 
+const ENTITLEMENT_ID = 'setpoint_ai_pro';
+
 type SubscriptionContextType = {
   subscription: Subscription | null;
   tier: SubscriptionTier;
@@ -30,7 +33,9 @@ type SubscriptionContextType = {
   aiSessionsUsed: number;
   aiSessionsLimit: number | null;
   loading: boolean;
-  purchaseWithApple: () => Promise<{ error: Error | null }>;
+  offerings: PurchasesOfferings | null;
+  offeringsLoading: boolean;
+  purchaseWithApple: (pkg: PurchasesPackage) => Promise<{ error: Error | null }>;
   purchaseOnWeb: () => Promise<{ error: Error | null }>;
   restorePurchases: () => Promise<{ error: Error | null }>;
   refreshSubscription: () => Promise<void>;
@@ -51,6 +56,8 @@ export function SubscriptionProvider({
   const [aiSessionsUsed, setAiSessionsUsed] = useState(0);
   const [loading, setLoading] = useState(true);
   const [rcInitialized, setRcInitialized] = useState(false);
+  const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
+  const [offeringsLoading, setOfferingsLoading] = useState(true);
 
   // ─── Initialize RevenueCat ────────────────────────────────
 
@@ -87,6 +94,26 @@ export function SubscriptionProvider({
       Purchases.logOut().catch(() => {});
     };
   }, [user?.id, rcInitialized]);
+
+  // ─── Load RevenueCat offerings ────────────────────────────
+
+  useEffect(() => {
+    if (!rcInitialized) return;
+
+    const loadOfferings = async () => {
+      try {
+        setOfferingsLoading(true);
+        const off = await Purchases.getOfferings();
+        setOfferings(off);
+      } catch (err) {
+        console.warn('Failed to load offerings:', err);
+      } finally {
+        setOfferingsLoading(false);
+      }
+    };
+
+    loadOfferings();
+  }, [rcInitialized]);
 
   // ─── Load subscription from Supabase ─────────────────────
 
@@ -137,24 +164,13 @@ export function SubscriptionProvider({
 
   // ─── Purchase via Apple IAP (RevenueCat) ──────────────────
 
-  const purchaseWithApple = async (): Promise<{ error: Error | null }> => {
+  const purchaseWithApple = async (
+    pkg: PurchasesPackage,
+  ): Promise<{ error: Error | null }> => {
     try {
-      const offerings = await Purchases.getOfferings();
-      const pkg = offerings.current?.availablePackages?.[0];
-
-      if (!pkg) {
-        return {
-          error: new Error(
-            'No subscription packages available. Please try again later.',
-          ),
-        };
-      }
-
       const { customerInfo } = await Purchases.purchasePackage(pkg);
 
-      // Check if the purchase activated the entitlement
-      if (customerInfo.entitlements.active['setpoint_plus']) {
-        // Webhook will sync to Supabase, but refresh optimistically
+      if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
         await refreshSubscription();
         return { error: null };
       }
@@ -162,7 +178,7 @@ export function SubscriptionProvider({
       return { error: null };
     } catch (err: any) {
       if (err.userCancelled) {
-        return { error: null }; // User canceled — not an error
+        return { error: null };
       }
       return { error: err };
     }
@@ -176,13 +192,20 @@ export function SubscriptionProvider({
         'create-checkout-session',
         {
           body: {
-            // You'll set this to your actual Stripe price ID
             priceId: process.env.EXPO_PUBLIC_STRIPE_PRICE_ID ?? '',
           },
         },
       );
 
-      if (error) throw error;
+      if (error) {
+        // Extract the actual message from the edge function response if available
+        const body = error.context
+          ? await error.context.json().catch(() => null)
+          : null;
+        const message =
+          body?.error || error.message || 'Failed to start checkout';
+        return { error: new Error(message) };
+      }
 
       if (data?.error) {
         return { error: new Error(data.error) };
@@ -204,7 +227,7 @@ export function SubscriptionProvider({
   const restorePurchases = async (): Promise<{ error: Error | null }> => {
     try {
       const customerInfo = await Purchases.restorePurchases();
-      if (customerInfo.entitlements.active['setpoint_plus']) {
+      if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
         await refreshSubscription();
         return { error: null };
       }
@@ -242,6 +265,8 @@ export function SubscriptionProvider({
         aiSessionsUsed,
         aiSessionsLimit,
         loading,
+        offerings,
+        offeringsLoading,
         purchaseWithApple,
         purchaseOnWeb,
         restorePurchases,

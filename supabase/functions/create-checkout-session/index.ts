@@ -40,6 +40,15 @@ Deno.serve(async (req: Request) => {
       `/customers/search?query=email:'${encodeURIComponent(email)}'`,
     );
     const searchData = await searchResp.json();
+
+    if (searchData.error) {
+      console.error("Stripe customer search error:", JSON.stringify(searchData.error));
+      return jsonError(
+        searchData.error?.message ?? "Failed to look up billing account",
+        502,
+      );
+    }
+
     let customerId: string;
 
     if (searchData.data?.length > 0) {
@@ -48,9 +57,18 @@ Deno.serve(async (req: Request) => {
       // Create new Stripe customer
       const createResp = await stripeRequest("POST", "/customers", {
         email,
-        metadata: { supabase_user_id: user.id },
+        "metadata[supabase_user_id]": user.id,
       });
       const customerData = await createResp.json();
+
+      if (customerData.error) {
+        console.error("Stripe customer create error:", JSON.stringify(customerData.error));
+        return jsonError(
+          customerData.error?.message ?? "Failed to create billing account",
+          502,
+        );
+      }
+
       customerId = customerData.id;
     }
 
@@ -81,8 +99,11 @@ Deno.serve(async (req: Request) => {
     const sessionData = await sessionResp.json();
 
     if (sessionData.error) {
-      console.error("Stripe error:", sessionData.error);
-      return jsonError("Failed to create checkout session", 502);
+      console.error("Stripe error:", JSON.stringify(sessionData.error));
+      return jsonError(
+        sessionData.error?.message ?? "Failed to create checkout session",
+        502,
+      );
     }
 
     return jsonOk({ url: sessionData.url, sessionId: sessionData.id });

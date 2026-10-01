@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
+import { PurchasesPackage, PACKAGE_TYPE } from 'react-native-purchases';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { colors, spacing } from '../theme';
@@ -21,7 +22,6 @@ const FEATURES_FREE = [
 
 const FEATURES_PLUS = [
   'Unlimited AI coaching',
-  'Voice conversations',
   'Deeper performance analysis',
   'Personalized programming',
   'Long-term progression analysis',
@@ -39,6 +39,8 @@ export default function PaywallScreen({
     isTrialing,
     aiSessionsUsed,
     aiSessionsLimit,
+    offerings,
+    offeringsLoading,
     purchaseWithApple,
     purchaseOnWeb,
     restorePurchases,
@@ -47,10 +49,23 @@ export default function PaywallScreen({
   const [loading, setLoading] = useState<
     'apple' | 'web' | 'restore' | null
   >(null);
+  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('annual');
+
+  const monthlyPkg = offerings?.current?.availablePackages?.find(
+    (p) => p.packageType === PACKAGE_TYPE.MONTHLY,
+  );
+  const annualPkg = offerings?.current?.availablePackages?.find(
+    (p) => p.packageType === PACKAGE_TYPE.ANNUAL,
+  );
 
   const handleApplePurchase = async () => {
+    const pkg = selectedPlan === 'annual' ? annualPkg : monthlyPkg;
+    if (!pkg) {
+      Alert.alert('Error', 'No subscription package available. Please try again later.');
+      return;
+    }
     setLoading('apple');
-    const { error } = await purchaseWithApple();
+    const { error } = await purchaseWithApple(pkg);
     setLoading(null);
     if (error) {
       Alert.alert('Purchase Failed', error.message);
@@ -112,8 +127,54 @@ export default function PaywallScreen({
     >
       {/* Header */}
       <Text style={styles.header}>Setpoint+</Text>
-      <Text style={styles.price}>$9.99 / month</Text>
       <Text style={styles.trialNote}>Start with a 7-day free trial</Text>
+
+      {/* Plan selector */}
+      {Platform.OS === 'ios' && !offeringsLoading && (monthlyPkg || annualPkg) && (
+        <View style={styles.planSelector}>
+          {annualPkg && (
+            <TouchableOpacity
+              style={[
+                styles.planCard,
+                selectedPlan === 'annual' && styles.planCardSelected,
+              ]}
+              onPress={() => setSelectedPlan('annual')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.planBadge}>
+                <Text style={styles.planBadgeText}>Best Value</Text>
+              </View>
+              <Text style={[styles.planLabel, selectedPlan === 'annual' && styles.planLabelSelected]}>Annual</Text>
+              <Text style={[styles.planPrice, selectedPlan === 'annual' && styles.planPriceSelected]}>
+                {annualPkg.product.priceString} / year
+              </Text>
+              {monthlyPkg && (
+                <Text style={[styles.planSavings, selectedPlan === 'annual' && styles.planSavingsSelected]}>
+                  {`${(annualPkg.product.price / 12).toFixed(2)} / mo`}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+          {monthlyPkg && (
+            <TouchableOpacity
+              style={[
+                styles.planCard,
+                selectedPlan === 'monthly' && styles.planCardSelected,
+              ]}
+              onPress={() => setSelectedPlan('monthly')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.planLabel, selectedPlan === 'monthly' && styles.planLabelSelected]}>Monthly</Text>
+              <Text style={[styles.planPrice, selectedPlan === 'monthly' && styles.planPriceSelected]}>
+                {monthlyPkg.product.priceString} / mo
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+      {Platform.OS === 'ios' && offeringsLoading && (
+        <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
+      )}
 
       {/* Usage context */}
       {aiSessionsLimit != null && (
@@ -185,7 +246,7 @@ export default function PaywallScreen({
               <ActivityIndicator color="#000" />
             ) : (
               <Text style={styles.appleButtonText}>
-                Upgrade with Apple
+                Subscribe with Apple
               </Text>
             )}
           </TouchableOpacity>
@@ -264,6 +325,68 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
+  },
+
+  // Plan selector
+  planSelector: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  planCard: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: spacing.md,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.border,
+    position: 'relative',
+  },
+  planCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '10',
+  },
+  planBadge: {
+    position: 'absolute',
+    top: -10,
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  planBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  planLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  planLabelSelected: {
+    color: colors.text,
+  },
+  planPrice: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  planPriceSelected: {
+    color: colors.primary,
+  },
+  planSavings: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    marginTop: 2,
+  },
+  planSavingsSelected: {
+    color: colors.textSecondary,
   },
 
   // Usage card
