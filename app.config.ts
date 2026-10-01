@@ -45,7 +45,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     'expo-apple-authentication',
     'expo-web-browser',
-    ...(IS_DEV ? ['./plugins/withStoreKitConfig'] : []),
+    ...(IS_DEV && !process.env.EAS_BUILD ? ['./plugins/withStoreKitConfig'] : []),
   ],
   updates: {
     url: 'https://u.expo.dev/4f6e2b3a-633f-4a53-9955-625ef8099684',
