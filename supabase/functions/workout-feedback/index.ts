@@ -36,7 +36,7 @@ Deno.serve(async (req: Request) => {
         `
         date, type, status, notes, ai_summary,
         workout_exercises (
-          name, exercise_type, is_planned, exercise_order,
+          name, exercise_type, is_planned, exercise_order, equipment_count,
           exercise_sets ( set_number, weight, reps, rpe ),
           cardio_entries ( duration_minutes, distance, pace, heart_rate, notes )
         )
@@ -66,7 +66,7 @@ Deno.serve(async (req: Request) => {
         `
         id, date, type, status, notes,
         workout_exercises (
-          name, exercise_type, is_planned, exercise_order,
+          name, exercise_type, is_planned, exercise_order, equipment_count,
           exercise_sets ( set_number, weight, reps, rpe ),
           cardio_entries ( duration_minutes, distance, pace, heart_rate, notes )
         )
@@ -90,7 +90,7 @@ Deno.serve(async (req: Request) => {
         `
         id, date, type, status,
         workout_exercises (
-          name, exercise_type, is_planned, exercise_order,
+          name, exercise_type, is_planned, exercise_order, equipment_count,
           exercise_sets ( set_number, weight, reps )
         )
       `,
@@ -110,10 +110,11 @@ Deno.serve(async (req: Request) => {
       return filtered
         .sort((a: any, b: any) => a.exercise_order - b.exercise_order)
         .map((e: any) => {
+          const ecTag = e.equipment_count > 1 ? ` (\u00d7${e.equipment_count})` : "";
           if (e.exercise_type === "cardio") {
             const c = e.cardio_entries?.[0];
             if (!c) return `  ${e.name}: no data`;
-            const parts = [e.name + ":"];
+            const parts = [e.name + ecTag + ":"];
             if (c.duration_minutes) parts.push(`${c.duration_minutes} min`);
             if (c.distance) parts.push(`${c.distance} mi`);
             if (c.pace) parts.push(`pace ${c.pace}`);
@@ -123,7 +124,7 @@ Deno.serve(async (req: Request) => {
           const sets = (e.exercise_sets ?? []).sort(
             (a: any, b: any) => a.set_number - b.set_number,
           );
-          if (sets.length === 0) return `  ${e.name}: no sets`;
+          if (sets.length === 0) return `  ${e.name}${ecTag}: no sets`;
           const setStrs = sets.map((s: any) => {
             let str = "";
             if (s.weight != null) str += `${s.weight}`;
@@ -131,7 +132,7 @@ Deno.serve(async (req: Request) => {
             if (s.rpe != null) str += ` @${s.rpe}`;
             return str || "\u2014";
           });
-          return `  ${e.name}: ${setStrs.join(", ")}`;
+          return `  ${e.name}${ecTag}: ${setStrs.join(", ")}`;
         })
         .join("\n");
     };

@@ -43,6 +43,7 @@ export type WorkoutExercise = {
   exercise_order: number;
   is_planned: boolean;
   notes: string | null;
+  equipment_count: number | null;
   created_at: string;
 };
 
@@ -89,6 +90,7 @@ export type AIExercise = {
   sets?: number;
   reps?: number;
   weight?: number;
+  equipment_count?: number;
   duration_minutes?: number;
   distance?: number;
   pace?: string;

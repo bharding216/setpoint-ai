@@ -26,6 +26,7 @@ import {
   WeeklyScheduleEntry,
   DAY_NAMES,
 } from '../types/database';
+import { formatWeight, formatWeightWithUnit } from '../lib/formatWeight';
 
 type PlannedExercise = WorkoutExercise & { sets: ExerciseSet[] };
 
@@ -37,6 +38,7 @@ type AIWorkout = {
     sets?: number;
     reps?: number;
     weight?: number;
+    equipment_count?: number;
     duration_minutes?: number;
     distance?: number;
     pace?: string;
@@ -81,7 +83,9 @@ function WorkoutPreviewCard({ workout }: { workout: AIWorkout }) {
             {ex.exercise_type === 'strength'
               ? [
                   ex.sets && ex.reps ? `${ex.sets}×${ex.reps}` : null,
-                  ex.weight ? `${ex.weight} lbs` : null,
+                  ex.weight
+                    ? formatWeightWithUnit(ex.weight, ex.equipment_count)
+                    : null,
                 ]
                   .filter(Boolean)
                   .join(' @ ')
@@ -375,13 +379,33 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
         const ex = pendingWorkout.exercises[i];
 
         // Planned exercise
-        await supabase.from('workout_exercises').insert({
-          workout_id: workout.id,
-          name: ex.name,
-          exercise_type: ex.exercise_type ?? 'strength',
-          exercise_order: i,
-          is_planned: true,
-        });
+        const { data: plannedEx } = await supabase
+          .from('workout_exercises')
+          .insert({
+            workout_id: workout.id,
+            name: ex.name,
+            exercise_type: ex.exercise_type ?? 'strength',
+            exercise_order: i,
+            is_planned: true,
+            equipment_count: ex.equipment_count ?? null,
+          })
+          .select()
+          .single();
+
+        if (
+          plannedEx &&
+          ex.exercise_type !== 'cardio' &&
+          ex.sets != null &&
+          ex.reps != null
+        ) {
+          const plannedSets = Array.from({ length: ex.sets }, (_, s) => ({
+            exercise_id: plannedEx.id,
+            set_number: s + 1,
+            weight: ex.weight ?? null,
+            reps: ex.reps,
+          }));
+          await supabase.from('exercise_sets').insert(plannedSets);
+        }
 
         // Actual exercise (user will log against this)
         const { data: actualEx, error: exError } = await supabase
@@ -392,6 +416,7 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
             exercise_type: ex.exercise_type ?? 'strength',
             exercise_order: i,
             is_planned: false,
+            equipment_count: ex.equipment_count ?? null,
           })
           .select()
           .single();
@@ -458,6 +483,7 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
           exercise_type: planned.exercise_type,
           exercise_order: planned.exercise_order,
           is_planned: false,
+          equipment_count: planned.equipment_count,
         })
         .select()
         .single();
@@ -506,12 +532,12 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
   const formatSets = (exercise: PlannedExercise) => {
     if (exercise.sets.length === 0) return '';
     const first = exercise.sets[0];
-    const weight = first.weight != null ? `${first.weight}` : '';
+    const w = formatWeight(first.weight, exercise.equipment_count);
     const reps = first.reps != null ? `${first.reps}` : '';
     const count = exercise.sets.length;
 
-    if (weight && reps)
-      return count > 1 ? `${weight} × ${reps} × ${count}` : `${weight} × ${reps}`;
+    if (w && reps)
+      return count > 1 ? `${w} × ${reps} × ${count}` : `${w} × ${reps}`;
     if (reps) return count > 1 ? `${reps} reps × ${count}` : `${reps} reps`;
     return '';
   };
@@ -534,8 +560,10 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
     );
   }
 
-  const showCompleted =
-    todayWorkout?.status === 'completed' && actualExercises.length > 0;
+  const showActual =
+    (todayWorkout?.status === 'completed' ||
+      todayWorkout?.status === 'in_progress') &&
+    actualExercises.length > 0;
 
   const chatVisible =
     chatActive &&
@@ -770,8 +798,8 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
         </View>
       )}
 
-      {/* Planned exercises */}
-      {plannedExercises.length > 0 && (
+      {/* Planned exercises — hide when actual exercises are available */}
+      {plannedExercises.length > 0 && !showActual && (
         <View style={styles.planCard}>
           <Text style={styles.planTitle}>
             Planned — {todayWorkout?.type ?? 'Workout'}
@@ -787,27 +815,37 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
         </View>
       )}
 
-      {/* Actual exercises (shown for completed workouts) */}
-      {showCompleted && (
+      {/* Actual exercises (shown for in-progress & completed workouts) */}
+      {showActual && (
         <View
           style={[
             styles.planCard,
-            { borderLeftWidth: 3, borderLeftColor: colors.success },
+            {
+              borderLeftWidth: 3,
+              borderLeftColor:
+                todayWorkout?.status === 'completed'
+                  ? colors.success
+                  : colors.primary,
+            },
           ]}
         >
           <Text style={styles.planTitle}>
-            Actual — {todayWorkout?.type ?? 'Workout'}
+            {todayWorkout?.status === 'completed' ? 'Actual' : 'Exercises'} —{' '}
+            {todayWorkout?.type ?? 'Workout'}
           </Text>
           {actualExercises.map((exercise) => (
             <View key={exercise.id} style={styles.exerciseRow}>
               <Text style={styles.exerciseName}>{exercise.name}</Text>
-              {exercise.sets.map((set) => (
-                <Text key={set.id} style={styles.setDetail}>
-                  {set.weight != null ? `${set.weight} × ` : ''}
-                  {set.reps ?? '—'}
-                  {set.rpe != null ? ` @${set.rpe}` : ''}
-                </Text>
-              ))}
+              {exercise.sets.map((set) => {
+                const w = formatWeight(set.weight, exercise.equipment_count);
+                return (
+                  <Text key={set.id} style={styles.setDetail}>
+                    {w ? `${w} × ` : ''}
+                    {set.reps ?? '—'}
+                    {set.rpe != null ? ` @${set.rpe}` : ''}
+                  </Text>
+                );
+              })}
             </View>
           ))}
         </View>

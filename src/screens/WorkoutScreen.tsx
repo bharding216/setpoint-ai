@@ -24,6 +24,7 @@ import { maybeRequestReview } from '../lib/storeReview';
 import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing } from '../theme';
 import { ExerciseSet, ExerciseWithSets } from '../types/database';
+import { formatWeight } from '../lib/formatWeight';
 
 // ─── Feedback types ─────────────────────────────────────────
 type PlanAdjustment = {
@@ -207,6 +208,9 @@ function ExerciseCard({
         >
           <View style={styles.exerciseHeader}>
             <Text style={styles.exerciseName}>{exercise.name}</Text>
+            {exercise.equipment_count != null && exercise.equipment_count > 1 && (
+              <Text style={styles.equipmentBadge}>×{exercise.equipment_count}</Text>
+            )}
             <Text style={styles.dragHandle}>⠿</Text>
           </View>
         </TouchableOpacity>
@@ -215,7 +219,11 @@ function ExerciseCard({
           <>
             <View style={styles.setHeader}>
               <Text style={styles.setHeaderNum}>#</Text>
-              <Text style={styles.setHeaderText}>WEIGHT</Text>
+              <Text style={styles.setHeaderText}>
+                {exercise.equipment_count != null && exercise.equipment_count > 1
+                  ? 'EACH'
+                  : 'WEIGHT'}
+              </Text>
               <Text style={styles.setHeaderText}>REPS</Text>
               <Text style={[styles.setHeaderText, styles.setHeaderSmall]}>
                 RPE
@@ -791,6 +799,18 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: spacing.sm,
     flex: 1,
+  },
+  equipmentBadge: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.primary,
+    backgroundColor: colors.primary + '15',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: spacing.xs,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
   },
   dragHandle: {
     fontSize: 20,

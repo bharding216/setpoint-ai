@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
         `
         date, type, status, notes,
         workout_exercises (
-          name, exercise_type, is_planned, exercise_order,
+          name, exercise_type, is_planned, exercise_order, equipment_count,
           exercise_sets ( set_number, weight, reps, rpe ),
           cardio_entries ( duration_minutes, distance, pace, heart_rate, notes )
         )
@@ -97,6 +97,11 @@ INSTRUCTIONS:
 - ALWAYS include a complete workout recommendation in the "workout" field.
 - When the user asks to adjust something, update the workout accordingly and explain what you changed.
 - For strength exercises: suggest specific weight, sets, and reps based on recent performance.
+  - Include "equipment_count" to indicate how many pieces of equipment are used simultaneously:
+    - Bilateral dumbbell exercises (DB Bench Press, DB Rows, DB Shoulder Press, etc.): equipment_count = 2, weight = per-dumbbell weight
+    - Single dumbbell/kettlebell exercises (Goblet Squat, Concentration Curl): equipment_count = 1
+    - Barbell exercises: equipment_count = 1, weight = total barbell weight
+    - Machine / bodyweight exercises: equipment_count = 1 (or omit)
 - For cardio: suggest duration, distance, or pace as appropriate.
 - If they have no training history, create a reasonable introductory workout based on their preferences.
 
@@ -106,7 +111,8 @@ You MUST respond with ONLY valid JSON (no markdown, no code fences):
   "workout": {
     "type": "Session type",
     "exercises": [
-      { "name": "Exercise", "exercise_type": "strength", "sets": 3, "reps": 8, "weight": 135 },
+      { "name": "Bench Press", "exercise_type": "strength", "sets": 3, "reps": 8, "weight": 135, "equipment_count": 1 },
+      { "name": "DB Shoulder Press", "exercise_type": "strength", "sets": 3, "reps": 10, "weight": 30, "equipment_count": 2 },
       { "name": "Running", "exercise_type": "cardio", "duration_minutes": 20, "distance": 2.0, "pace": "10:00/mi" }
     ]
   }

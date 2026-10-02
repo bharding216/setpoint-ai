@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { colors, spacing } from '../theme';
 import { Workout, ExerciseSet, DAY_NAMES } from '../types/database';
+import { formatWeight } from '../lib/formatWeight';
 
 if (
   Platform.OS === 'android' &&
@@ -35,6 +36,7 @@ type ExerciseDetail = {
   exercise_type: string;
   is_planned: boolean;
   exercise_order: number;
+  equipment_count: number | null;
   sets: { weight: number | null; reps: number | null; rpe: number | null }[];
   cardio: {
     duration_minutes: number | null;
@@ -79,6 +81,7 @@ export default function HistoryScreen({ navigation }: { navigation: any }) {
           is_planned,
           exercise_type,
           exercise_order,
+          equipment_count,
           exercise_sets ( weight, reps, rpe, set_number ),
           cardio_entries ( duration_minutes, distance, pace, heart_rate, notes )
         )
@@ -99,6 +102,7 @@ export default function HistoryScreen({ navigation }: { navigation: any }) {
             exercise_type: e.exercise_type,
             is_planned: e.is_planned,
             exercise_order: e.exercise_order,
+            equipment_count: e.equipment_count ?? null,
             sets: (e.exercise_sets ?? [])
               .sort(
                 (a: ExerciseSet, b: ExerciseSet) =>
@@ -211,6 +215,7 @@ export default function HistoryScreen({ navigation }: { navigation: any }) {
           exercise_type: p.exercise_type,
           exercise_order: p.exercise_order,
           is_planned: false,
+          equipment_count: p.equipment_count,
         })
         .select()
         .single();
@@ -267,13 +272,13 @@ export default function HistoryScreen({ navigation }: { navigation: any }) {
     }
   };
 
-  const formatSetLine = (set: {
-    weight: number | null;
-    reps: number | null;
-    rpe: number | null;
-  }) => {
+  const formatSetLine = (
+    set: { weight: number | null; reps: number | null; rpe: number | null },
+    equipmentCount?: number | null,
+  ) => {
     const parts: string[] = [];
-    if (set.weight != null) parts.push(`${set.weight}`);
+    const w = formatWeight(set.weight, equipmentCount);
+    if (w) parts.push(w);
     if (set.reps != null) parts.push(`${set.reps}`);
     const main = parts.join(' × ');
     return set.rpe != null ? `${main} @${set.rpe}` : main;
@@ -321,7 +326,7 @@ export default function HistoryScreen({ navigation }: { navigation: any }) {
         <View style={styles.detailSets}>
           {exercise.sets.map((set, i) => (
             <Text key={i} style={styles.detailSetLine}>
-              Set {i + 1} — {formatSetLine(set) || '—'}
+              Set {i + 1} — {formatSetLine(set, exercise.equipment_count) || '—'}
             </Text>
           ))}
         </View>

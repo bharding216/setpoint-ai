@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
         `
         date, type, status, notes,
         workout_exercises (
-          name, exercise_type, is_planned, exercise_order,
+          name, exercise_type, is_planned, exercise_order, equipment_count,
           exercise_sets ( set_number, weight, reps, rpe ),
           cardio_entries ( duration_minutes, distance, pace, heart_rate, notes )
         )
@@ -93,6 +93,11 @@ INSTRUCTIONS:
 3. Recommend a concrete workout for today.
 4. Explain your reasoning briefly — reference specific recent workouts, progression, and recovery needs.
 5. For strength exercises, suggest specific weight, reps, and sets based on their recent performance.
+   - Include "equipment_count" to indicate how many pieces of equipment are used simultaneously:
+     - Bilateral dumbbell exercises (DB Bench Press, DB Rows, DB Shoulder Press, etc.): equipment_count = 2, weight = per-dumbbell weight
+     - Single dumbbell/kettlebell exercises (Goblet Squat, Concentration Curl): equipment_count = 1
+     - Barbell exercises: equipment_count = 1, weight = total barbell weight
+     - Machine / bodyweight exercises: equipment_count = 1 (or omit)
 6. For cardio, suggest duration, distance, or pace as appropriate.
 7. If they have no history yet, create a reasonable introductory workout based on their preferences and schedule.
 
@@ -107,7 +112,16 @@ Respond with ONLY valid JSON in this exact format (no markdown, no code fences):
         "exercise_type": "strength",
         "sets": 3,
         "reps": 5,
-        "weight": 185
+        "weight": 185,
+        "equipment_count": 1
+      },
+      {
+        "name": "Dumbbell Row",
+        "exercise_type": "strength",
+        "sets": 3,
+        "reps": 10,
+        "weight": 40,
+        "equipment_count": 2
       },
       {
         "name": "Running",

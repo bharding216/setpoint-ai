@@ -8,12 +8,16 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Modal,
+  Linking,
+  Switch,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { supabase } from '../lib/supabase';
+import { requestReviewManually } from '../lib/storeReview';
 import { colors, spacing } from '../theme';
 import {
   TrainingPreference,
@@ -330,13 +334,16 @@ function PreferenceSection({
 
 export default function SettingsScreen({ navigation }: { navigation: any }) {
   const { user, signOut } = useAuth();
-  const { tier, isTrialing, trialEndsAt, aiSessionsUsed, aiSessionsLimit, manageSubscription, refreshSubscription } = useSubscription();
+  const { tier, isTrialing, trialEndsAt, aiSessionsUsed, aiSessionsLimit, manageSubscription, refreshSubscription, devTierOverride, setDevTierOverride } = useSubscription();
   const [schedule, setSchedule] = useState<(WeeklyScheduleEntry | null)[]>(
     Array(7).fill(null),
   );
   const [preferences, setPreferences] = useState<TrainingPreference[]>([]);
   const [loading, setLoading] = useState(true);
   const [resettingAI, setResettingAI] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [sendingFeedback, setSendingFeedback] = useState(false);
 
   const rebuildAIProfile = useCallback(() => {
     // Fire-and-forget: rebuild the compact AI profile whenever settings change
@@ -451,6 +458,45 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
     );
   };
 
+  const handleSendFeedback = async () => {
+    const message = feedbackText.trim();
+    if (!message || !user) return;
+
+    setSendingFeedback(true);
+    try {
+      const { error } = await supabase.from('app_feedback').insert({
+        user_id: user.id,
+        message,
+      });
+      if (error) throw error;
+      setFeedbackText('');
+      setShowFeedback(false);
+      Alert.alert('Thank You!', 'Your feedback has been submitted. We appreciate it!');
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to send feedback');
+    } finally {
+      setSendingFeedback(false);
+    }
+  };
+
+  const handleContactSupport = () => {
+    const subject = encodeURIComponent('Setpoint AI Support');
+    const body = encodeURIComponent(
+      `\n\n---\nApp Version: ${Constants.expoConfig?.version ?? '1.1'}\nUser: ${user?.email ?? 'unknown'}`
+    );
+    Linking.openURL(`mailto:brandon@getsurmount.com?subject=${subject}&body=${body}`);
+  };
+
+  const handleRateApp = async () => {
+    const didRequest = await requestReviewManually();
+    if (!didRequest) {
+      Alert.alert(
+        'Rate Setpoint AI',
+        'Unable to open the store review on this device. You can rate us on the App Store or Google Play!',
+      );
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -510,10 +556,60 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
         <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>Data</Text>
         <TouchableOpacity
           style={styles.importButton}
-          onPress={() => navigation.getParent()?.navigate('ImportScreen')}
+          onPress={() => {
+            if (tier === 'free') {
+              Alert.alert(
+                'Setpoint+ Feature',
+                'CSV import is available on the Setpoint+ plan. Upgrade to import your workout history.',
+                [
+                  { text: 'Not Now', style: 'cancel' },
+                  {
+                    text: 'Upgrade',
+                    onPress: () => navigation.getParent()?.navigate('PaywallScreen'),
+                  },
+                ],
+              );
+              return;
+            }
+            navigation.getParent()?.navigate('ImportScreen');
+          }}
           activeOpacity={0.8}
         >
           <Text style={styles.importButtonText}>Import Workout History (CSV)</Text>
+          {tier === 'free' && (
+            <Text style={styles.importBadgeText}>Setpoint+</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Support & Feedback */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>
+          Support & Feedback
+        </Text>
+        <TouchableOpacity
+          style={[styles.supportRow, styles.supportRowFirst]}
+          onPress={() => setShowFeedback(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.supportRowText}>Send Feedback</Text>
+          <Text style={styles.supportRowChevron}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.supportRow}
+          onPress={handleContactSupport}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.supportRowText}>Contact Support</Text>
+          <Text style={styles.supportRowDetail}>brandon@getsurmount.com</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.supportRow, styles.supportRowLast]}
+          onPress={handleRateApp}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.supportRowText}>Rate Setpoint AI</Text>
+          <Text style={styles.supportRowChevron}>⭐</Text>
         </TouchableOpacity>
       </View>
 
@@ -580,10 +676,45 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
             Developer Tools
           </Text>
           <View style={styles.devToolsCard}>
-            <Text style={styles.devToolsLabel}>
-              AI Sessions: {aiSessionsUsed}
-              {aiSessionsLimit != null ? ` / ${aiSessionsLimit}` : ' (unlimited)'}
-            </Text>
+            <View style={styles.devToolsRow}>
+              <Text style={styles.devToolsLabel}>
+                Tier Override
+              </Text>
+              <View style={styles.devTierToggle}>
+                <Text style={[
+                  styles.devTierLabel,
+                  (devTierOverride ?? tier) === 'free' && styles.devTierLabelActive,
+                ]}>
+                  Free
+                </Text>
+                <Switch
+                  value={(devTierOverride ?? tier) === 'plus'}
+                  onValueChange={(v) => setDevTierOverride(v ? 'plus' : 'free')}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#fff"
+                />
+                <Text style={[
+                  styles.devTierLabel,
+                  (devTierOverride ?? tier) === 'plus' && styles.devTierLabelActive,
+                ]}>
+                  Plus
+                </Text>
+              </View>
+            </View>
+            {devTierOverride && (
+              <TouchableOpacity
+                onPress={() => setDevTierOverride(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.devTierResetText}>Reset to actual tier ({tier === devTierOverride ? 'same' : tier})</Text>
+              </TouchableOpacity>
+            )}
+            <View style={[styles.devToolsRow, { marginTop: spacing.sm }]}>
+              <Text style={styles.devToolsLabel}>
+                AI Sessions: {aiSessionsUsed}
+                {aiSessionsLimit != null ? ` / ${aiSessionsLimit}` : ' (unlimited)'}
+              </Text>
+            </View>
             <TouchableOpacity
               style={[styles.devResetButton, resettingAI && { opacity: 0.5 }]}
               onPress={handleResetAISessions}
@@ -609,6 +740,54 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
           <Text style={styles.devBadge}>DEV</Text>
         )}
       </View>
+
+      {/* Feedback Modal */}
+      <Modal
+        visible={showFeedback}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowFeedback(false)}
+      >
+        <View style={styles.feedbackModal}>
+          <View style={styles.feedbackHeader}>
+            <TouchableOpacity onPress={() => setShowFeedback(false)}>
+              <Text style={styles.feedbackCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.feedbackHeaderTitle}>Send Feedback</Text>
+            <TouchableOpacity
+              onPress={handleSendFeedback}
+              disabled={!feedbackText.trim() || sendingFeedback}
+            >
+              <Text
+                style={[
+                  styles.feedbackSend,
+                  (!feedbackText.trim() || sendingFeedback) &&
+                    styles.feedbackSendDisabled,
+                ]}
+              >
+                {sendingFeedback ? 'Sending…' : 'Send'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.feedbackBody}>
+            <Text style={styles.feedbackPrompt}>
+              What's on your mind? Bug reports, feature requests, or anything
+              else — we'd love to hear from you.
+            </Text>
+            <TextInput
+              style={styles.feedbackInput}
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+              placeholder="Type your feedback…"
+              placeholderTextColor={colors.textTertiary}
+              multiline
+              textAlignVertical="top"
+              autoFocus
+            />
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -805,6 +984,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   importButtonText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
+  importBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
+    backgroundColor: colors.primary + '18',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginTop: spacing.xs,
+  },
 
   // Account
   emailText: {
@@ -839,6 +1029,30 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     alignItems: 'center',
   },
+  devToolsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  devTierToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  devTierLabel: {
+    fontSize: 13,
+    color: colors.textTertiary,
+    fontWeight: '500',
+  },
+  devTierLabelActive: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  devTierResetText: {
+    fontSize: 12,
+    color: colors.warning,
+    marginTop: spacing.xs,
+  },
   devResetButtonText: {
     color: colors.warning,
     fontSize: 14,
@@ -866,5 +1080,92 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     overflow: 'hidden',
+  },
+
+  // Support & Feedback
+  supportRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  supportRowFirst: {
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  supportRowLast: {
+    borderBottomWidth: 0,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  supportRowText: {
+    fontSize: 15,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  supportRowDetail: {
+    fontSize: 13,
+    color: colors.textTertiary,
+  },
+  supportRowChevron: {
+    fontSize: 18,
+    color: colors.textTertiary,
+  },
+
+  // Feedback modal
+  feedbackModal: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  feedbackHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  feedbackHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  feedbackCancel: {
+    fontSize: 16,
+    color: colors.textSecondary,
+  },
+  feedbackSend: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  feedbackSendDisabled: {
+    color: colors.textTertiary,
+  },
+  feedbackBody: {
+    padding: spacing.lg,
+    flex: 1,
+  },
+  feedbackPrompt: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  feedbackInput: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: spacing.md,
+    fontSize: 15,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 160,
+    flex: 1,
   },
 });

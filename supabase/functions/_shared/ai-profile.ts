@@ -118,10 +118,11 @@ export function formatWorkoutHistory(workouts: any[]): string {
     const exSummaries = actual
       .sort((a: any, b: any) => a.exercise_order - b.exercise_order)
       .map((e: any) => {
+        const ecTag = e.equipment_count > 1 ? ` (×${e.equipment_count})` : "";
         if (e.exercise_type === "cardio") {
           const c = e.cardio_entries?.[0];
           if (!c) return `  ${e.name}`;
-          const parts = [e.name + ":"];
+          const parts = [e.name + ecTag + ":"];
           if (c.duration_minutes) parts.push(`${c.duration_minutes} min`);
           if (c.distance) parts.push(`${c.distance} mi`);
           if (c.pace) parts.push(`pace ${c.pace}`);
@@ -132,7 +133,7 @@ export function formatWorkoutHistory(workouts: any[]): string {
         const sets = (e.exercise_sets ?? []).sort(
           (a: any, b: any) => a.set_number - b.set_number,
         );
-        if (sets.length === 0) return `  ${e.name}: no sets logged`;
+        if (sets.length === 0) return `  ${e.name}${ecTag}: no sets logged`;
 
         const setStrs = sets.map((s: any) => {
           let str = "";
@@ -142,7 +143,7 @@ export function formatWorkoutHistory(workouts: any[]): string {
           return str || "\u2014";
         });
 
-        return `  ${e.name}: ${setStrs.join(", ")}`;
+        return `  ${e.name}${ecTag}: ${setStrs.join(", ")}`;
       });
 
     lines.push(

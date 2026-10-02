@@ -40,6 +40,8 @@ type SubscriptionContextType = {
   restorePurchases: () => Promise<{ error: Error | null }>;
   refreshSubscription: () => Promise<void>;
   manageSubscription: () => void;
+  devTierOverride: SubscriptionTier | null;
+  setDevTierOverride: (tier: SubscriptionTier | null) => void;
 };
 
 const SubscriptionContext = createContext<
@@ -58,6 +60,7 @@ export function SubscriptionProvider({
   const [rcInitialized, setRcInitialized] = useState(false);
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
   const [offeringsLoading, setOfferingsLoading] = useState(true);
+  const [devTierOverride, setDevTierOverride] = useState<SubscriptionTier | null>(null);
 
   // ─── Initialize RevenueCat ────────────────────────────────
 
@@ -96,9 +99,19 @@ export function SubscriptionProvider({
   }, [user?.id, rcInitialized]);
 
   // ─── Load RevenueCat offerings ────────────────────────────
+  // In dev builds the bundle ID is .dev, but IAP products are registered
+  // under the production bundle ID in App Store Connect. StoreKit Config
+  // files only work when launched from Xcode, so skip offerings entirely
+  // in development to avoid noisy errors. Test IAP via simulator
+  // (npx expo run:ios) or use a production/preview build on-device.
 
   useEffect(() => {
     if (!rcInitialized) return;
+
+    if (__DEV__) {
+      setOfferingsLoading(false);
+      return;
+    }
 
     const loadOfferings = async () => {
       try {
@@ -149,7 +162,8 @@ export function SubscriptionProvider({
 
   // ─── Derived state ────────────────────────────────────────
 
-  const effectiveTier = getEffectiveTier(subscription);
+  const baseTier = getEffectiveTier(subscription);
+  const effectiveTier = (__DEV__ && devTierOverride) ? devTierOverride : baseTier;
   const isTrialing =
     subscription?.status === 'trialing' &&
     subscription?.trial_ends_at != null &&
@@ -282,6 +296,8 @@ export function SubscriptionProvider({
         restorePurchases,
         refreshSubscription,
         manageSubscription,
+        devTierOverride,
+        setDevTierOverride,
       }}
     >
       {children}

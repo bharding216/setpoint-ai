@@ -58,9 +58,26 @@ export default function PaywallScreen({
     (p) => p.packageType === PACKAGE_TYPE.ANNUAL,
   );
 
+  const devMonthly = __DEV__ && !monthlyPkg
+    ? { priceString: '$4.99', price: 4.99 }
+    : null;
+  const devAnnual = __DEV__ && !annualPkg
+    ? { priceString: '$39.99', price: 39.99 }
+    : null;
+
+  const showMonthly = monthlyPkg ?? devMonthly;
+  const showAnnual = annualPkg ?? devAnnual;
+
   const handleApplePurchase = async () => {
     const pkg = selectedPlan === 'annual' ? annualPkg : monthlyPkg;
     if (!pkg) {
+      if (__DEV__) {
+        Alert.alert(
+          'Dev Mode',
+          `Simulated ${selectedPlan} purchase. Use the tier toggle in Developer Tools to switch plans.`,
+        );
+        return;
+      }
       Alert.alert('Error', 'No subscription package available. Please try again later.');
       return;
     }
@@ -133,9 +150,9 @@ export default function PaywallScreen({
       <Text style={styles.trialNote}>Start with a 7-day free trial</Text>
 
       {/* Plan selector */}
-      {Platform.OS === 'ios' && !offeringsLoading && (monthlyPkg || annualPkg) && (
+      {!offeringsLoading && (showMonthly || showAnnual) && (
         <View style={styles.planSelector}>
-          {annualPkg && (
+          {showAnnual && (
             <TouchableOpacity
               style={[
                 styles.planCard,
@@ -149,16 +166,16 @@ export default function PaywallScreen({
               </View>
               <Text style={[styles.planLabel, selectedPlan === 'annual' && styles.planLabelSelected]}>Annual</Text>
               <Text style={[styles.planPrice, selectedPlan === 'annual' && styles.planPriceSelected]}>
-                {annualPkg.product.priceString} / year
+                {showAnnual.priceString} / year
               </Text>
-              {monthlyPkg && (
+              {showMonthly && (
                 <Text style={[styles.planSavings, selectedPlan === 'annual' && styles.planSavingsSelected]}>
-                  {`${(annualPkg.product.price / 12).toFixed(2)} / mo`}
+                  {`${(showAnnual.price / 12).toFixed(2)} / mo`}
                 </Text>
               )}
             </TouchableOpacity>
           )}
-          {monthlyPkg && (
+          {showMonthly && (
             <TouchableOpacity
               style={[
                 styles.planCard,
@@ -169,13 +186,13 @@ export default function PaywallScreen({
             >
               <Text style={[styles.planLabel, selectedPlan === 'monthly' && styles.planLabelSelected]}>Monthly</Text>
               <Text style={[styles.planPrice, selectedPlan === 'monthly' && styles.planPriceSelected]}>
-                {monthlyPkg.product.priceString} / mo
+                {showMonthly.priceString} / mo
               </Text>
             </TouchableOpacity>
           )}
         </View>
       )}
-      {Platform.OS === 'ios' && offeringsLoading && (
+      {offeringsLoading && (
         <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
       )}
 

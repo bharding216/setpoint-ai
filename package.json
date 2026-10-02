@@ -32,7 +32,8 @@
     "react-native-safe-area-context": "^5.9.1",
     "react-native-screens": "^4.28.0",
     "react-native-url-polyfill": "^4.0.0",
-    "victory-native": "^42.0.1"
+    "victory-native": "^42.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

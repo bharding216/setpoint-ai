@@ -12,7 +12,7 @@ import { colors } from '../theme';
 import LoginScreen from '../screens/LoginScreen';
 import TodayScreen from '../screens/TodayScreen';
 import WorkoutScreen from '../screens/WorkoutScreen';
-import HistoryScreen from '../screens/HistoryScreen';
+import CalendarScreen from '../screens/CalendarScreen';
 import ProgressScreen from '../screens/ProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import ImportScreen from '../screens/ImportScreen';
@@ -62,13 +62,14 @@ function MainTabs() {
         }}
       />
       <Tab.Screen
-        name="History"
-        component={HistoryScreen}
+        name="Calendar"
+        component={CalendarScreen}
         options={{
-          title: 'History',
+          title: 'Calendar',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <SymbolView
-              name="clock.fill"
+              name="calendar"
               tintColor={color}
               style={{ width: size, height: size }}
               type="monochrome"

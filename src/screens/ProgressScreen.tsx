@@ -27,6 +27,7 @@ type ExerciseOption = {
   name: string;
   type: 'strength' | 'cardio';
   metric: string;
+  equipmentCount: number | null;
   data: ChartPoint[];
 };
 
@@ -80,6 +81,7 @@ export default function ProgressScreen() {
           name,
           exercise_type,
           is_planned,
+          equipment_count,
           exercise_sets ( weight, reps ),
           cardio_entries ( duration_minutes, distance )
         )
@@ -155,6 +157,7 @@ export default function ProgressScreen() {
         type: 'strength' | 'cardio';
         entries: { date: string; value: number }[];
         metric: string;
+        equipmentCount: number | null;
       }
     >();
 
@@ -166,6 +169,7 @@ export default function ProgressScreen() {
       for (const ex of exs) {
         const name = (ex as any).name as string;
         const exType = (ex as any).exercise_type as string;
+        const ec: number | null = (ex as any).equipment_count ?? null;
 
         if (exType === 'strength') {
           const sets = (ex as any).exercise_sets ?? [];
@@ -187,6 +191,7 @@ export default function ProgressScreen() {
                 type: 'strength',
                 entries: [],
                 metric: 'Best Reps',
+                equipmentCount: ec,
               });
             }
             exerciseMap
@@ -194,10 +199,12 @@ export default function ProgressScreen() {
               .entries.push({ date: w.date, value: bestReps });
           } else {
             if (!exerciseMap.has(name)) {
+              const label = ec != null && ec > 1 ? 'Weight each (lbs)' : 'Weight (lbs)';
               exerciseMap.set(name, {
                 type: 'strength',
                 entries: [],
-                metric: 'Weight (lbs)',
+                metric: label,
+                equipmentCount: ec,
               });
             }
             exerciseMap
@@ -214,6 +221,7 @@ export default function ProgressScreen() {
                 type: 'cardio',
                 entries: [],
                 metric: 'Duration (min)',
+                equipmentCount: null,
               });
             }
             exerciseMap
@@ -225,6 +233,7 @@ export default function ProgressScreen() {
                 type: 'cardio',
                 entries: [],
                 metric: 'Distance',
+                equipmentCount: null,
               });
             }
             exerciseMap
@@ -242,6 +251,7 @@ export default function ProgressScreen() {
           name,
           type: data.type,
           metric: data.metric,
+          equipmentCount: data.equipmentCount,
           data: data.entries.map((e, i) => ({
             x: i,
             y: e.value,

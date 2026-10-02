@@ -36,7 +36,7 @@ Deno.serve(async (req: Request) => {
           `
           date, type, status, notes,
           workout_exercises (
-            name, exercise_type, is_planned, exercise_order,
+            name, exercise_type, is_planned, exercise_order, equipment_count,
             exercise_sets ( set_number, weight, reps, rpe ),
             cardio_entries ( duration_minutes, distance, pace, heart_rate )
           )
