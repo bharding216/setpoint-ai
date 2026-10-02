@@ -126,6 +126,11 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Setup completion state
+  const [hasSchedule, setHasSchedule] = useState(false);
+  const [hasGoals, setHasGoals] = useState(false);
+  const [hasEquipment, setHasEquipment] = useState(false);
+
   // Chat state
   const [chatActive, setChatActive] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -139,6 +144,29 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
 
   const fetchData = useCallback(async () => {
     if (!user) return;
+
+    // Check setup completion: any schedule entries, any goals, any equipment
+    const [{ count: scheduleCount }, { count: goalCount }, { count: equipCount }] =
+      await Promise.all([
+        supabase
+          .from('weekly_schedule')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('training_preferences')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('category', 'goal'),
+        supabase
+          .from('training_preferences')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('category', 'equipment'),
+      ]);
+
+    setHasSchedule((scheduleCount ?? 0) > 0);
+    setHasGoals((goalCount ?? 0) > 0);
+    setHasEquipment((equipCount ?? 0) > 0);
 
     const { data: scheduleData } = await supabase
       .from('weekly_schedule')
@@ -728,6 +756,10 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
     );
   }
 
+  // ─── Setup completion ─────────────────────────────────────────
+
+  const setupComplete = hasSchedule && hasGoals;
+
   // ─── Standard View (no chat) ────────────────────────────────
 
   return (
@@ -876,7 +908,7 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
         )}
 
-        {!todayWorkout && (
+        {!todayWorkout && setupComplete && (
           <>
             <TouchableOpacity
               style={styles.primaryButton}
@@ -898,6 +930,95 @@ export default function TodayScreen({ navigation }: { navigation: any }) {
               </Text>
             </TouchableOpacity>
           </>
+        )}
+
+        {!todayWorkout && !setupComplete && (
+          <View style={styles.setupCard}>
+            <Text style={styles.setupTitle}>Welcome to Setpoint 👋</Text>
+            <Text style={styles.setupSubtitle}>
+              Set up your training profile so the AI can plan workouts
+              tailored to you.
+            </Text>
+
+            <View style={styles.setupChecklist}>
+              <View style={styles.setupCheckRow}>
+                <Text style={styles.setupCheckIcon}>
+                  {hasSchedule ? '✅' : '☐'}
+                </Text>
+                <View style={styles.setupCheckContent}>
+                  <Text
+                    style={[
+                      styles.setupCheckText,
+                      hasSchedule && styles.setupCheckDone,
+                    ]}
+                  >
+                    Set your weekly schedule
+                  </Text>
+                  <Text style={styles.setupCheckHint}>
+                    e.g. "Heavy Upper" on Monday, "Rest" on Sunday
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.setupCheckRow}>
+                <Text style={styles.setupCheckIcon}>
+                  {hasGoals ? '✅' : '☐'}
+                </Text>
+                <View style={styles.setupCheckContent}>
+                  <Text
+                    style={[
+                      styles.setupCheckText,
+                      hasGoals && styles.setupCheckDone,
+                    ]}
+                  >
+                    Add at least one goal
+                  </Text>
+                  <Text style={styles.setupCheckHint}>
+                    e.g. "Build lean muscle", "Run a 6-min mile"
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.setupCheckRow}>
+                <Text style={styles.setupCheckIcon}>
+                  {hasEquipment ? '✅' : '○'}
+                </Text>
+                <View style={styles.setupCheckContent}>
+                  <Text
+                    style={[
+                      styles.setupCheckText,
+                      hasEquipment && styles.setupCheckDone,
+                    ]}
+                  >
+                    List your equipment
+                  </Text>
+                  <Text style={styles.setupCheckHint}>
+                    Optional, but improves recommendations
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => navigation.navigate('Settings')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.primaryButtonText}>
+                Set Up My Training
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.blankWorkoutLink, { marginTop: spacing.sm }]}
+              onPress={startBlankWorkout}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.blankWorkoutLinkText}>
+                or start a blank workout
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {todayWorkout?.status === 'completed' && (
@@ -1052,6 +1173,55 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontSize: 16,
     fontWeight: '600',
+  },
+
+  // Setup card
+  setupCard: {
+    marginTop: spacing.xl,
+  },
+  setupTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  setupSubtitle: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
+  setupChecklist: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  setupCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm + 2,
+  },
+  setupCheckIcon: {
+    fontSize: 16,
+    marginTop: 1,
+  },
+  setupCheckContent: {
+    flex: 1,
+  },
+  setupCheckText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  setupCheckDone: {
+    color: colors.textTertiary,
+  },
+  setupCheckHint: {
+    fontSize: 13,
+    color: colors.textTertiary,
+    marginTop: 2,
   },
 
   // Chat styles
