@@ -472,7 +472,10 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
       const next = new Date(d);
       if (viewMode === 'month') next.setMonth(next.getMonth() - 1);
       else if (viewMode === 'week') next.setDate(next.getDate() - 7);
-      else next.setDate(next.getDate() - 1);
+      else {
+        next.setDate(next.getDate() - 1);
+        setSelectedDate(new Date(next));
+      }
       return next;
     });
   };
@@ -483,7 +486,10 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
       const next = new Date(d);
       if (viewMode === 'month') next.setMonth(next.getMonth() + 1);
       else if (viewMode === 'week') next.setDate(next.getDate() + 7);
-      else next.setDate(next.getDate() + 1);
+      else {
+        next.setDate(next.getDate() + 1);
+        setSelectedDate(new Date(next));
+      }
       return next;
     });
   };
@@ -1064,6 +1070,21 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
                 <View style={styles.emptyDay}>
                   <Text style={styles.emptyDayTitle}>Rest Day</Text>
                   <Text style={styles.emptyDaySubtitle}>No workout planned</Text>
+                  {selectedKey >= tKey && (
+                    <TouchableOpacity
+                      style={[styles.planButton, { marginTop: spacing.md }]}
+                      onPress={startAIChat}
+                      activeOpacity={0.8}
+                    >
+                      <SymbolView
+                        name="sparkles"
+                        tintColor="#fff"
+                        style={{ width: 16, height: 16 }}
+                        type="monochrome"
+                      />
+                      <Text style={styles.planButtonText}>Plan with AI</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </View>
@@ -1312,9 +1333,11 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
           <Text style={styles.sectionLabel}>Planned</Text>
         )}
         {planned.length > 0 && planned.map((ex, i) => (
-          <View key={`p-${ex.id}-${i}`} style={styles.exerciseRow}>
-            <Text style={styles.exerciseName}>{ex.name}</Text>
-            <Text style={styles.exerciseDetail}>{formatExerciseBrief(ex)}</Text>
+          <View key={`p-${ex.id}-${i}`} style={styles.dayExerciseBlock}>
+            <View style={styles.dayPlannedRow}>
+              <Text style={styles.dayExerciseName}>{ex.name}</Text>
+              <Text style={styles.dayPlannedDetail}>{formatExerciseBrief(ex)}</Text>
+            </View>
           </View>
         ))}
 
@@ -1322,29 +1345,47 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
           <Text style={[styles.sectionLabel, { marginTop: spacing.md }]}>Actual</Text>
         )}
         {actual.length > 0 && actual.map((ex, i) => (
-          <View key={`a-${ex.id}-${i}`} style={styles.exerciseRow}>
-            <Text style={styles.exerciseName}>{ex.name}</Text>
-            {ex.exercise_type === 'strength' && ex.sets.map((set, si) => {
-              const parts: string[] = [];
-              const w = formatWeight(set.weight, ex.equipment_count);
-              if (w) parts.push(w);
-              if (set.reps != null) parts.push(`${set.reps}`);
-              const main = parts.join(' × ');
-              const line = set.rpe != null ? `${main} @${set.rpe}` : main;
-              return (
-                <Text key={si} style={styles.setLine}>Set {si + 1} — {line || '—'}</Text>
-              );
-            })}
+          <View key={`a-${ex.id}-${i}`} style={styles.dayExerciseBlock}>
+            <Text style={styles.dayExerciseName}>{ex.name}</Text>
+
+            {ex.exercise_type === 'strength' && ex.sets.length > 0 && (
+              <View style={styles.setTable}>
+                <View style={styles.setTableHeader}>
+                  <Text style={[styles.setTableHeaderText, styles.setColNum]}>SET</Text>
+                  <Text style={[styles.setTableHeaderText, styles.setColWeight]}>WEIGHT</Text>
+                  <Text style={[styles.setTableHeaderText, styles.setColReps]}>REPS</Text>
+                  <Text style={[styles.setTableHeaderText, styles.setColRpe]}>RPE</Text>
+                </View>
+                {ex.sets.map((set, si) => (
+                  <View key={si} style={[styles.setTableRow, si % 2 === 0 && styles.setTableRowAlt]}>
+                    <Text style={[styles.setTableCell, styles.setColNum, styles.setNumText]}>{si + 1}</Text>
+                    <Text style={[styles.setTableCell, styles.setColWeight]}>{formatWeight(set.weight, ex.equipment_count) || '—'}</Text>
+                    <Text style={[styles.setTableCell, styles.setColReps]}>{set.reps != null ? set.reps : '—'}</Text>
+                    <Text style={[styles.setTableCell, styles.setColRpe]}>{set.rpe != null ? `@${set.rpe}` : '—'}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {ex.exercise_type === 'cardio' && ex.cardio && (
-              <View>
+              <View style={styles.cardioStats}>
                 {ex.cardio.duration_minutes != null && (
-                  <Text style={styles.setLine}>{ex.cardio.duration_minutes} min</Text>
+                  <View style={styles.cardioStatItem}>
+                    <Text style={styles.cardioStatValue}>{ex.cardio.duration_minutes}</Text>
+                    <Text style={styles.cardioStatLabel}>min</Text>
+                  </View>
                 )}
                 {ex.cardio.distance != null && (
-                  <Text style={styles.setLine}>{ex.cardio.distance} mi</Text>
+                  <View style={styles.cardioStatItem}>
+                    <Text style={styles.cardioStatValue}>{ex.cardio.distance}</Text>
+                    <Text style={styles.cardioStatLabel}>mi</Text>
+                  </View>
                 )}
                 {ex.cardio.pace && (
-                  <Text style={styles.setLine}>Pace: {ex.cardio.pace}</Text>
+                  <View style={styles.cardioStatItem}>
+                    <Text style={styles.cardioStatValue}>{ex.cardio.pace}</Text>
+                    <Text style={styles.cardioStatLabel}>pace</Text>
+                  </View>
                 )}
               </View>
             )}
@@ -1650,12 +1691,109 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     marginTop: spacing.sm,
   },
-  setLine: {
+
+  // Day view exercise blocks
+  dayExerciseBlock: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    padding: spacing.sm + 4,
+    marginTop: spacing.sm,
+  },
+  dayExerciseName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.xs + 2,
+  },
+  dayPlannedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dayPlannedDetail: {
     fontSize: 13,
     color: colors.textSecondary,
-    lineHeight: 20,
-    paddingLeft: spacing.sm,
+    fontWeight: '500',
   },
+
+  // Set table
+  setTable: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  setTableHeader: {
+    flexDirection: 'row',
+    paddingVertical: spacing.xs + 1,
+    paddingHorizontal: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  setTableHeaderText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textTertiary,
+    letterSpacing: 0.5,
+  },
+  setTableRow: {
+    flexDirection: 'row',
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.xs,
+  },
+  setTableRowAlt: {
+    backgroundColor: colors.surface,
+    borderRadius: 6,
+  },
+  setTableCell: {
+    fontSize: 14,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  setNumText: {
+    color: colors.textTertiary,
+    fontWeight: '600',
+  },
+  setColNum: {
+    width: 36,
+    textAlign: 'center',
+  },
+  setColWeight: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  setColReps: {
+    width: 50,
+    textAlign: 'center',
+  },
+  setColRpe: {
+    width: 44,
+    textAlign: 'center',
+  },
+
+  // Cardio stats
+  cardioStats: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  cardioStatItem: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    minWidth: 64,
+  },
+  cardioStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  cardioStatLabel: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+
   emptyExercises: {
     fontSize: 13,
     color: colors.textTertiary,

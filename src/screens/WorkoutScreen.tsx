@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Modal,
@@ -25,6 +26,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing } from '../theme';
 import { ExerciseSet, ExerciseWithSets } from '../types/database';
 import { formatWeight } from '../lib/formatWeight';
+import {
+  EXERCISE_PRESETS,
+  EXERCISE_CATEGORIES,
+  WORKOUT_TYPE_PRESETS,
+  searchExercises,
+  type ExercisePreset,
+  type ExerciseCategory,
+} from '../constants/exercises';
 
 // ─── Feedback types ─────────────────────────────────────────
 type PlanAdjustment = {
@@ -179,6 +188,7 @@ function ExerciseCard({
   onUpdateSet,
   onDeleteSet,
   onRemove,
+  onToggleEquipment,
   onRefresh,
 }: {
   exercise: ExerciseWithSets;
@@ -188,6 +198,7 @@ function ExerciseCard({
   onUpdateSet: (setId: string, field: 'weight' | 'reps' | 'rpe', value: string) => void;
   onDeleteSet: (setId: string) => void;
   onRemove: (exercise: ExerciseWithSets) => void;
+  onToggleEquipment: (exercise: ExerciseWithSets) => void;
   onRefresh: () => void;
 }) {
   return (
@@ -208,8 +219,27 @@ function ExerciseCard({
         >
           <View style={styles.exerciseHeader}>
             <Text style={styles.exerciseName}>{exercise.name}</Text>
-            {exercise.equipment_count != null && exercise.equipment_count > 1 && (
-              <Text style={styles.equipmentBadge}>×{exercise.equipment_count}</Text>
+            {exercise.exercise_type === 'strength' && (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onToggleEquipment(exercise);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text
+                  style={[
+                    styles.equipmentBadge,
+                    exercise.equipment_count != null && exercise.equipment_count > 1
+                      ? styles.equipmentBadgeActive
+                      : styles.equipmentBadgeInactive,
+                  ]}
+                >
+                  {exercise.equipment_count != null && exercise.equipment_count > 1
+                    ? '×2'
+                    : '×1'}
+                </Text>
+              </TouchableOpacity>
             )}
             <Text style={styles.dragHandle}>⠿</Text>
           </View>
@@ -288,12 +318,14 @@ export default function WorkoutScreen({
   const [exercises, setExercises] = useState<ExerciseWithSets[]>([]);
   const [workoutType, setWorkoutType] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
+  const [showTitlePresets, setShowTitlePresets] = useState(false);
   const [workoutStatus, setWorkoutStatus] = useState('');
   const [showAddExercise, setShowAddExercise] = useState(false);
   const [newExerciseName, setNewExerciseName] = useState('');
   const [newExerciseType, setNewExerciseType] = useState<
     'strength' | 'cardio'
   >('strength');
+  const [newEquipmentCount, setNewEquipmentCount] = useState<1 | 2>(1);
   const [feedback, setFeedback] = useState<WorkoutFeedback | null>(null);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -345,6 +377,7 @@ export default function WorkoutScreen({
       exercise_type: newExerciseType,
       exercise_order: exercises.length,
       is_planned: isPlanning,
+      equipment_count: newExerciseType === 'strength' ? newEquipmentCount : null,
     });
 
     if (error) {
@@ -353,6 +386,9 @@ export default function WorkoutScreen({
     }
 
     setNewExerciseName('');
+    setNewEquipmentCount(1);
+    setPresetCategory(null);
+    setPresetConfirmed(false);
     setShowAddExercise(false);
     fetchExercises();
   };
@@ -360,12 +396,25 @@ export default function WorkoutScreen({
   const addSet = async (exercise: ExerciseWithSets) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    const last = exercise.sets[exercise.sets.length - 1];
+    // Dismiss keyboard so any focused input fires onEndEditing (saves to DB)
+    Keyboard.dismiss();
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Read the latest set from DB (not React state) to pick up just-saved values
+    const { data: rows } = await supabase
+      .from('exercise_sets')
+      .select('weight, reps, rpe')
+      .eq('exercise_id', exercise.id)
+      .order('set_number', { ascending: false })
+      .limit(1);
+
+    const last = rows?.[0] ?? null;
     const { error } = await supabase.from('exercise_sets').insert({
       exercise_id: exercise.id,
       set_number: exercise.sets.length + 1,
       weight: last?.weight ?? null,
       reps: last?.reps ?? null,
+      rpe: last?.rpe ?? null,
     });
     if (error) Alert.alert('Error', error.message);
     else {
@@ -388,6 +437,16 @@ export default function WorkoutScreen({
   const deleteSet = async (setId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await supabase.from('exercise_sets').delete().eq('id', setId);
+    fetchExercises();
+  };
+
+  const toggleEquipment = async (exercise: ExerciseWithSets) => {
+    const current = exercise.equipment_count ?? 1;
+    const next = current > 1 ? 1 : 2;
+    await supabase
+      .from('workout_exercises')
+      .update({ equipment_count: next })
+      .eq('id', exercise.id);
     fetchExercises();
   };
 
@@ -502,6 +561,7 @@ export default function WorkoutScreen({
       onUpdateSet={updateSet}
       onDeleteSet={deleteSet}
       onRemove={removeExercise}
+      onToggleEquipment={toggleEquipment}
       onRefresh={fetchExercises}
     />
   );
@@ -509,18 +569,56 @@ export default function WorkoutScreen({
   const ListHeader = (
     <View>
       {editingTitle ? (
-        <TextInput
-          style={styles.titleInput}
-          value={workoutType}
-          onChangeText={setWorkoutType}
-          onEndEditing={() => saveTitle(workoutType)}
-          onSubmitEditing={() => saveTitle(workoutType)}
-          autoFocus
-          placeholder="Workout title…"
-          placeholderTextColor={colors.textTertiary}
-          returnKeyType="done"
-          selectTextOnFocus
-        />
+        <>
+          <TextInput
+            style={styles.titleInput}
+            value={workoutType}
+            onChangeText={setWorkoutType}
+            onEndEditing={() => saveTitle(workoutType)}
+            onSubmitEditing={() => saveTitle(workoutType)}
+            autoFocus
+            placeholder="Workout title…"
+            placeholderTextColor={colors.textTertiary}
+            returnKeyType="done"
+            selectTextOnFocus
+            onFocus={() => setShowTitlePresets(true)}
+            onBlur={() => setTimeout(() => setShowTitlePresets(false), 200)}
+          />
+          {showTitlePresets && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.titlePresetScroll}
+              contentContainerStyle={styles.titlePresetContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {WORKOUT_TYPE_PRESETS.map((preset) => (
+                <TouchableOpacity
+                  key={preset}
+                  style={[
+                    styles.titlePresetChip,
+                    workoutType === preset && styles.titlePresetChipActive,
+                  ]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setWorkoutType(preset);
+                    saveTitle(preset);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.titlePresetChipText,
+                      workoutType === preset && styles.titlePresetChipTextActive,
+                    ]}
+                  >
+                    {preset}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </>
       ) : (
         <TouchableOpacity onPress={() => setEditingTitle(true)} activeOpacity={0.6}>
           <Text style={styles.title}>
@@ -542,6 +640,23 @@ export default function WorkoutScreen({
     </View>
   );
 
+  const [presetCategory, setPresetCategory] = useState<ExerciseCategory | null>(null);
+  const [presetConfirmed, setPresetConfirmed] = useState(false);
+
+  const selectPreset = (preset: ExercisePreset) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setNewExerciseName(preset.name);
+    setNewExerciseType(preset.type);
+    setNewEquipmentCount(preset.equipmentCount);
+    setPresetConfirmed(true);
+  };
+
+  const searchResults = presetConfirmed ? [] : searchExercises(newExerciseName);
+
+  const categoryPresets = presetCategory
+    ? EXERCISE_PRESETS.filter((e) => e.category === presetCategory)
+    : [];
+
   const ListFooter = (
     <View>
       {showAddExercise ? (
@@ -549,13 +664,109 @@ export default function WorkoutScreen({
           <TextInput
             style={styles.addExerciseInput}
             value={newExerciseName}
-            onChangeText={setNewExerciseName}
-            placeholder="Exercise name"
+            onChangeText={(text) => {
+              setNewExerciseName(text);
+              setPresetCategory(null);
+              setPresetConfirmed(false);
+            }}
+            placeholder="Search or type exercise name…"
             placeholderTextColor={colors.textTertiary}
             autoFocus
             returnKeyType="done"
             onSubmitEditing={addExercise}
           />
+
+          {/* Search results */}
+          {newExerciseName.trim().length > 0 && searchResults.length > 0 && (
+            <View style={styles.searchResults}>
+              {searchResults.slice(0, 6).map((preset) => (
+                <TouchableOpacity
+                  key={preset.name}
+                  style={[
+                    styles.searchResultItem,
+                    preset.name === newExerciseName && styles.searchResultItemActive,
+                  ]}
+                  onPress={() => selectPreset(preset)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.searchResultName,
+                      preset.name === newExerciseName && styles.searchResultNameActive,
+                    ]}
+                  >
+                    {preset.name}
+                  </Text>
+                  <View style={styles.searchResultMeta}>
+                    <Text style={styles.searchResultCategory}>
+                      {preset.category}
+                    </Text>
+                    {preset.equipmentCount > 1 && (
+                      <Text style={styles.searchResultEquipment}>×2</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Category chips — shown when no search query */}
+          {!newExerciseName.trim() && (
+            <>
+              <Text style={styles.presetSectionLabel}>Browse by category</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.categoryChipScroll}
+                contentContainerStyle={styles.categoryChipContent}
+              >
+                {EXERCISE_CATEGORIES.map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      styles.categoryChip,
+                      presetCategory === cat && styles.categoryChipActive,
+                    ]}
+                    onPress={() =>
+                      setPresetCategory((prev) => (prev === cat ? null : cat))
+                    }
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.categoryChipText,
+                        presetCategory === cat && styles.categoryChipTextActive,
+                      ]}
+                    >
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Show exercises for selected category */}
+              {presetCategory && categoryPresets.length > 0 && (
+                <View style={styles.categoryExercises}>
+                  {categoryPresets.map((preset) => (
+                    <TouchableOpacity
+                      key={preset.name}
+                      style={styles.presetExerciseChip}
+                      onPress={() => selectPreset(preset)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.presetExerciseChipText}>
+                        {preset.name}
+                      </Text>
+                      {preset.equipmentCount > 1 && (
+                        <Text style={styles.presetExerciseChipBadge}>×2</Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+
           <View style={styles.typeToggle}>
             <TouchableOpacity
               style={[
@@ -579,7 +790,10 @@ export default function WorkoutScreen({
                 styles.typeButton,
                 newExerciseType === 'cardio' && styles.typeButtonActive,
               ]}
-              onPress={() => setNewExerciseType('cardio')}
+              onPress={() => {
+                setNewExerciseType('cardio');
+                setNewEquipmentCount(1);
+              }}
             >
               <Text
                 style={[
@@ -591,8 +805,68 @@ export default function WorkoutScreen({
               </Text>
             </TouchableOpacity>
           </View>
+
+          {newExerciseType === 'strength' && (
+            <View style={styles.equipmentToggle}>
+              <Text style={styles.equipmentToggleLabel}>Equipment</Text>
+              <View style={styles.equipmentToggleRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.equipmentOption,
+                    newEquipmentCount === 1 && styles.equipmentOptionActive,
+                  ]}
+                  onPress={() => setNewEquipmentCount(1)}
+                >
+                  <Text
+                    style={[
+                      styles.equipmentOptionText,
+                      newEquipmentCount === 1 && styles.equipmentOptionTextActive,
+                    ]}
+                  >
+                    ×1
+                  </Text>
+                  <Text
+                    style={[
+                      styles.equipmentOptionHint,
+                      newEquipmentCount === 1 && styles.equipmentOptionHintActive,
+                    ]}
+                  >
+                    Barbell / Machine
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.equipmentOption,
+                    newEquipmentCount === 2 && styles.equipmentOptionActive,
+                  ]}
+                  onPress={() => setNewEquipmentCount(2)}
+                >
+                  <Text
+                    style={[
+                      styles.equipmentOptionText,
+                      newEquipmentCount === 2 && styles.equipmentOptionTextActive,
+                    ]}
+                  >
+                    ×2
+                  </Text>
+                  <Text
+                    style={[
+                      styles.equipmentOptionHint,
+                      newEquipmentCount === 2 && styles.equipmentOptionHintActive,
+                    ]}
+                  >
+                    Dumbbell Pair
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
           <View style={styles.addExerciseActions}>
-            <TouchableOpacity onPress={() => setShowAddExercise(false)}>
+            <TouchableOpacity onPress={() => {
+              setShowAddExercise(false);
+              setPresetCategory(null);
+              setPresetConfirmed(false);
+            }}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.addButton} onPress={addExercise}>
@@ -803,14 +1077,20 @@ const styles = StyleSheet.create({
   equipmentBadge: {
     fontSize: 12,
     fontWeight: '600',
-    color: colors.primary,
-    backgroundColor: colors.primary + '15',
     borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     marginLeft: spacing.xs,
     marginBottom: spacing.sm,
     overflow: 'hidden',
+  },
+  equipmentBadgeActive: {
+    color: colors.primary,
+    backgroundColor: colors.primary + '15',
+  },
+  equipmentBadgeInactive: {
+    color: colors.textTertiary,
+    backgroundColor: colors.background,
   },
   dragHandle: {
     fontSize: 20,
@@ -973,6 +1253,53 @@ const styles = StyleSheet.create({
   },
   typeButtonText: { fontSize: 14, color: colors.textSecondary },
   typeButtonTextActive: { color: '#fff', fontWeight: '600' },
+
+  equipmentToggle: {
+    marginBottom: spacing.sm,
+  },
+  equipmentToggleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.xs,
+  },
+  equipmentToggleRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  equipmentOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  equipmentOptionActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  equipmentOptionText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  equipmentOptionTextActive: {
+    color: '#fff',
+  },
+  equipmentOptionHint: {
+    fontSize: 12,
+    color: colors.textTertiary,
+  },
+  equipmentOptionHintActive: {
+    color: 'rgba(255,255,255,0.75)',
+  },
   addExerciseActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1081,4 +1408,158 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   feedbackDoneText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+
+  // ── Title presets ──────────────────────────────────────────
+  titlePresetScroll: {
+    marginBottom: spacing.md,
+  },
+  titlePresetContent: {
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  titlePresetChip: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginRight: spacing.xs,
+  },
+  titlePresetChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  titlePresetChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  titlePresetChipTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+
+  // ── Exercise search results ────────────────────────────────
+  searchResults: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  searchResultItemActive: {
+    backgroundColor: colors.primary + '15',
+  },
+  searchResultName: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+    flex: 1,
+  },
+  searchResultNameActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  searchResultMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.sm,
+    gap: spacing.xs,
+  },
+  searchResultCategory: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    fontWeight: '500',
+  },
+  searchResultEquipment: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.primary,
+    backgroundColor: colors.primary + '15',
+    borderRadius: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    overflow: 'hidden',
+  },
+
+  // ── Category browsing ─────────────────────────────────────
+  presetSectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.xs,
+  },
+  categoryChipScroll: {
+    marginBottom: spacing.sm,
+    flexGrow: 0,
+  },
+  categoryChipContent: {
+    gap: spacing.xs,
+  },
+  categoryChip: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  categoryChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  categoryChipTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  categoryExercises: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  presetExerciseChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs + 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 4,
+  },
+  presetExerciseChipText: {
+    fontSize: 13,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  presetExerciseChipBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.primary,
+    backgroundColor: colors.primary + '15',
+    borderRadius: 3,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    overflow: 'hidden',
+  },
 });
