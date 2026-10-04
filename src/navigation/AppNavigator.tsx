@@ -15,13 +15,15 @@ import WorkoutScreen from '../screens/WorkoutScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import ProgressScreen from '../screens/ProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
-import ImportScreen from '../screens/ImportScreen';
+import TrainingProfileScreen from '../screens/TrainingProfileScreen';
+import BaselineScreen from '../screens/BaselineScreen';
 import PaywallScreen from '../screens/PaywallScreen';
 
 export type RootStackParamList = {
   MainTabs: undefined;
   WorkoutScreen: { workoutId: string; mode?: 'log' | 'plan' };
-  ImportScreen: undefined;
+  TrainingProfileScreen: undefined;
+  BaselineScreen: undefined;
   PaywallScreen: undefined;
   Login: undefined;
 };
@@ -145,11 +147,25 @@ export default function AppNavigator() {
               }}
             />
             <RootStack.Screen
-              name="ImportScreen"
-              component={ImportScreen}
+              name="TrainingProfileScreen"
+              component={TrainingProfileScreen}
               options={{
                 headerShown: true,
-                title: 'Import History',
+                title: 'Training Profile',
+                headerBackTitle: 'Settings',
+                headerStyle: { backgroundColor: colors.background },
+                headerTintColor: colors.text,
+                headerTitleStyle: { color: colors.text },
+                headerShadowVisible: false,
+                presentation: 'card',
+              }}
+            />
+            <RootStack.Screen
+              name="BaselineScreen"
+              component={BaselineScreen}
+              options={{
+                headerShown: true,
+                title: 'Fitness Baseline',
                 headerBackTitle: 'Settings',
                 headerStyle: { backgroundColor: colors.background },
                 headerTintColor: colors.text,

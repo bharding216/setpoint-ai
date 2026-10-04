@@ -19,410 +19,153 @@ import { useSubscription } from '../contexts/SubscriptionContext';
 import { supabase } from '../lib/supabase';
 import { requestReviewManually } from '../lib/storeReview';
 import { colors, spacing } from '../theme';
-import {
-  TrainingPreference,
-  WeeklyScheduleEntry,
-  DAY_NAMES,
-} from '../types/database';
 
-// ─── Preset suggestions per category ────────────────────────
+// ─── Reusable menu row ──────────────────────────────────────
 
-const GOAL_PRESETS = [
-  'Run a 6-minute mile',
-  'Build lean, athletic muscle',
-  'Prioritize longevity',
-  'Improve cardiovascular endurance',
-  'Increase squat / bench / deadlift',
-  'Lose body fat while maintaining strength',
-  'Improve mobility and flexibility',
-  'Train for a 5K / 10K / half marathon',
-  'Complete a triathlon (sprint / Olympic / Ironman)',
-  'Improve swim endurance and technique',
-  'Bike a century ride (100 mi)',
-  'Improve cycling FTP / power output',
-];
-
-const PREFERENCE_PRESETS = [
-  "I don't want to be a bodybuilder",
-  "I don't want every workout to leave me sore",
-  'Keep workouts under 60 minutes',
-  'Prefer compound movements over isolation',
-  'Minimal rest between sets (keep it moving)',
-  'I like supersets and circuits',
-  'I prefer steady-state cardio over HIIT',
-  'I prefer HIIT over steady-state cardio',
-  'No exercises that load the lower back heavily',
-  'Prioritize recovery and avoid overtraining',
-  'I enjoy multi-sport / cross-training',
-  'Include swimming in my weekly training',
-  'Include cycling in my weekly training',
-  'I train for triathlon (swim / bike / run)',
-];
-
-const EQUIPMENT_PRESETS = [
-  'Barbell',
-  'Squat rack / power rack',
-  'Flat bench',
-  'Adjustable bench',
-  'Dumbbells',
-  'Pull-up bar',
-  'Resistance bands',
-  'Kettlebell',
-  'Cable machine',
-  'Dip bars',
-  'Foam roller',
-  'Jump rope',
-  'Treadmill',
-  'Rowing machine',
-  'Stationary bike',
-  'Trap bar',
-  'EZ curl bar',
-  'Leg press',
-  'Lat pulldown machine',
-  'Road bike',
-  'Indoor bike trainer',
-  'Pool access',
-  'Open water access',
-  'Swim goggles / gear',
-  'Cycling power meter',
-  'Heart rate monitor',
-];
-
-const SCHEDULE_PRESETS = [
-  'Heavy Upper',
-  'Heavy Lower',
-  'Upper Conditioning',
-  'Lower Conditioning',
-  'Easy Run',
-  'Hard Run',
-  'Long Run',
-  'Full Body',
-  'Push',
-  'Pull',
-  'Legs',
-  'HIIT',
-  'Yoga / Mobility',
-  'Recovery',
-  'Rest',
-  'Easy Bike',
-  'Hard Bike',
-  'Long Ride',
-  'Pool Swim',
-  'Open Water Swim',
-  'Swim Drills',
-  'Brick (Bike + Run)',
-  'Cross-Training',
-];
-
-// ─── Schedule Row ───────────────────────────────────────────
-
-function ScheduleRow({
-  day,
-  value,
-  onSave,
-  showPresets,
+function MenuRow({
+  label,
+  detail,
+  onPress,
+  isFirst,
+  isLast,
+  chevron = true,
 }: {
-  day: string;
-  value: string;
-  onSave: (v: string) => void;
-  showPresets: boolean;
+  label: string;
+  detail?: string;
+  onPress: () => void;
+  isFirst?: boolean;
+  isLast?: boolean;
+  chevron?: boolean;
 }) {
-  const [text, setText] = useState(value);
-
-  const selectPreset = (preset: string) => {
-    setText(preset);
-    onSave(preset);
-  };
-
   return (
-    <View style={styles.scheduleRowWrapper}>
-      <View style={styles.scheduleRow}>
-        <Text style={styles.scheduleDay}>{day}</Text>
-        <View style={styles.scheduleInputWrapper}>
-          <TextInput
-            style={styles.scheduleInput}
-            value={text}
-            onChangeText={setText}
-            onEndEditing={() => onSave(text.trim())}
-            placeholder="Tap to set…"
-            placeholderTextColor={colors.textTertiary}
-            returnKeyType="done"
-          />
-        </View>
+    <TouchableOpacity
+      style={[
+        styles.menuRow,
+        isFirst && styles.menuRowFirst,
+        isLast && styles.menuRowLast,
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Text style={styles.menuRowLabel}>{label}</Text>
+      <View style={styles.menuRowRight}>
+        {detail ? <Text style={styles.menuRowDetail}>{detail}</Text> : null}
+        {chevron && <Text style={styles.menuRowChevron}>›</Text>}
       </View>
-      {showPresets && (
-        <View style={styles.schedulePresetRow}>
-          {SCHEDULE_PRESETS.map((p) => (
-            <TouchableOpacity
-              key={p}
-              style={[
-                styles.presetChip,
-                text === p && styles.presetChipActive,
-              ]}
-              onPress={() => selectPreset(p)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.presetChipText,
-                  text === p && styles.presetChipTextActive,
-                ]}
-              >
-                {p}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </View>
+    </TouchableOpacity>
   );
 }
 
-// ─── Schedule Section with suggestions toggle ───────────────
+// ─── Summary helpers ────────────────────────────────────────
 
-function ScheduleSection({
-  schedule,
-  onSave,
-}: {
-  schedule: (WeeklyScheduleEntry | null)[];
-  onSave: (day: number, value: string) => void;
-}) {
-  const [showPresets, setShowPresets] = useState(false);
+function useProfileSummary() {
+  const { user } = useAuth();
+  const [scheduleDays, setScheduleDays] = useState(0);
+  const [goalCount, setGoalCount] = useState(0);
+  const [prefCount, setPrefCount] = useState(0);
+  const [equipCount, setEquipCount] = useState(0);
 
-  const selectPreset = (preset: string, dayIndex: number) => {
-    onSave(dayIndex, preset);
-  };
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
 
-  return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Weekly Schedule</Text>
-        <TouchableOpacity
-          onPress={() => setShowPresets((p) => !p)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.suggestionsToggle}>
-            {showPresets ? 'Hide suggestions' : 'Suggestions'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      supabase
+        .from('weekly_schedule')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .then(({ count }) => setScheduleDays(count ?? 0));
 
-      {DAY_NAMES.map((day, i) => (
-        <ScheduleRow
-          key={day}
-          day={day}
-          value={schedule[i]?.session_type ?? ''}
-          onSave={(v) => onSave(i, v)}
-          showPresets={showPresets}
-        />
-      ))}
-    </View>
+      supabase
+        .from('training_preferences')
+        .select('category')
+        .eq('user_id', user.id)
+        .then(({ data }) => {
+          if (!data) return;
+          setGoalCount(data.filter((d) => d.category === 'goal').length);
+          setPrefCount(data.filter((d) => d.category === 'preference').length);
+          setEquipCount(data.filter((d) => d.category === 'equipment').length);
+        });
+    }, [user]),
   );
-}
 
-// ─── Preference Section with presets ────────────────────────
-
-function PreferenceSection({
-  title,
-  category,
-  items,
-  userId,
-  onChanged,
-  presets,
-}: {
-  title: string;
-  category: TrainingPreference['category'];
-  items: TrainingPreference[];
-  userId: string;
-  onChanged: () => void;
-  presets: string[];
-}) {
-  const [newItem, setNewItem] = useState('');
-  const [showPresets, setShowPresets] = useState(false);
-
-  const existingContent = new Set(items.map((i) => i.content));
-  const availablePresets = presets.filter((p) => !existingContent.has(p));
-
-  const addItem = async (content?: string) => {
-    const value = (content ?? newItem).trim();
-    if (!value) return;
-    const { error } = await supabase.from('training_preferences').insert({
-      user_id: userId,
-      content: value,
-      category,
-    });
-    if (error) Alert.alert('Error', error.message);
-    else {
-      setNewItem('');
-      onChanged();
-    }
-  };
-
-  const removeItem = async (id: string) => {
-    await supabase.from('training_preferences').delete().eq('id', id);
-    onChanged();
-  };
-
-  return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        {availablePresets.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setShowPresets((p) => !p)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.suggestionsToggle}>
-              {showPresets ? 'Hide suggestions' : 'Suggestions'}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Preset chips */}
-      {showPresets && availablePresets.length > 0 && (
-        <View style={styles.presetChipRow}>
-          {availablePresets.map((p) => (
-            <TouchableOpacity
-              key={p}
-              style={styles.presetChip}
-              onPress={() => addItem(p)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.presetChipText}>+ {p}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Existing items */}
-      {items.map((item) => (
-        <View key={item.id} style={styles.prefRow}>
-          <Text style={styles.prefText}>{item.content}</Text>
-          <TouchableOpacity
-            onPress={() => removeItem(item.id)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.prefDelete}>✕</Text>
-          </TouchableOpacity>
-        </View>
-      ))}
-
-      {/* Free-form input */}
-      <View style={styles.prefAddRow}>
-        <TextInput
-          style={styles.prefAddInput}
-          value={newItem}
-          onChangeText={setNewItem}
-          placeholder={`Add custom ${title.toLowerCase().replace(/s$/, '')}…`}
-          placeholderTextColor={colors.textTertiary}
-          returnKeyType="done"
-          onSubmitEditing={() => addItem()}
-        />
-        <TouchableOpacity
-          style={styles.prefAddButton}
-          onPress={() => addItem()}
-        >
-          <Text style={styles.prefAddButtonText}>+</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  return { scheduleDays, goalCount, prefCount, equipCount };
 }
 
 // ─── Main Screen ────────────────────────────────────────────
 
 export default function SettingsScreen({ navigation }: { navigation: any }) {
   const { user, signOut } = useAuth();
-  const { tier, isTrialing, trialEndsAt, aiSessionsUsed, aiSessionsLimit, manageSubscription, refreshSubscription, devTierOverride, setDevTierOverride } = useSubscription();
-  const [schedule, setSchedule] = useState<(WeeklyScheduleEntry | null)[]>(
-    Array(7).fill(null),
-  );
-  const [preferences, setPreferences] = useState<TrainingPreference[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [resettingAI, setResettingAI] = useState(false);
+  const {
+    tier,
+    isTrialing,
+    trialEndsAt,
+    aiSessionsUsed,
+    aiSessionsLimit,
+    manageSubscription,
+    refreshSubscription,
+    devTierOverride,
+    setDevTierOverride,
+  } = useSubscription();
+
+  const { scheduleDays, goalCount, prefCount, equipCount } =
+    useProfileSummary();
+
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [resettingAI, setResettingAI] = useState(false);
 
-  const rebuildAIProfile = useCallback(() => {
-    // Fire-and-forget: rebuild the compact AI profile whenever settings change
-    supabase.functions.invoke('rebuild-ai-profile', { body: {} }).catch(() => {});
-  }, []);
-
-  const fetchData = useCallback(async () => {
-    if (!user) return;
-
-    const { data: schedData } = await supabase
-      .from('weekly_schedule')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('day_of_week');
-
-    const sched: (WeeklyScheduleEntry | null)[] = Array(7).fill(null);
-    if (schedData) {
-      for (const entry of schedData) {
-        sched[entry.day_of_week] = entry;
-      }
-    }
-    setSchedule(sched);
-
-    const { data: prefData } = await supabase
-      .from('training_preferences')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at');
-    setPreferences(prefData ?? []);
-
-    setLoading(false);
-  }, [user]);
-
-  const handlePreferencesChanged = useCallback(() => {
-    fetchData();
-    rebuildAIProfile();
-  }, [fetchData, rebuildAIProfile]);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchData();
-    }, [fetchData]),
-  );
-
-  const saveScheduleDay = async (dayOfWeek: number, sessionType: string) => {
-    if (!user) return;
-    const existing = schedule[dayOfWeek];
-
-    if (!sessionType) {
-      if (existing) {
-        await supabase
-          .from('weekly_schedule')
-          .delete()
-          .eq('id', existing.id);
-        handlePreferencesChanged();
-      }
-      return;
-    }
-
-    if (existing) {
-      await supabase
-        .from('weekly_schedule')
-        .update({ session_type: sessionType })
-        .eq('id', existing.id);
-    } else {
-      await supabase.from('weekly_schedule').insert({
-        user_id: user.id,
-        day_of_week: dayOfWeek,
-        session_type: sessionType,
-      });
-    }
-    handlePreferencesChanged();
-  };
+  // ── Handlers ──────────────────────────────────────────────
 
   const handleLogout = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Log Out', style: 'destructive', onPress: signOut },
     ]);
+  };
+
+  const handleSendFeedback = async () => {
+    const message = feedbackText.trim();
+    if (!message || !user) return;
+
+    setSendingFeedback(true);
+    try {
+      const { error } = await supabase.from('app_feedback').insert({
+        user_id: user.id,
+        message,
+      });
+      if (error) throw error;
+      setFeedbackText('');
+      setShowFeedback(false);
+      Alert.alert(
+        'Thank You!',
+        'Your feedback has been submitted. We appreciate it!',
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Failed to send feedback');
+    } finally {
+      setSendingFeedback(false);
+    }
+  };
+
+  const handleContactSupport = () => {
+    const subject = encodeURIComponent('Setpoint AI Support');
+    const body = encodeURIComponent(
+      `\n\n---\nApp Version: ${Constants.expoConfig?.version ?? '1.1'}\nUser: ${user?.email ?? 'unknown'}`,
+    );
+    Linking.openURL(
+      `mailto:brandon@getsurmount.com?subject=${subject}&body=${body}`,
+    );
+  };
+
+  const handleRateApp = async () => {
+    const didRequest = await requestReviewManually();
+    if (!didRequest) {
+      Alert.alert(
+        'Rate Setpoint AI',
+        'Unable to open the store review on this device. You can rate us on the App Store or Google Play!',
+      );
+    }
   };
 
   const handleResetAISessions = () => {
@@ -458,265 +201,180 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
     );
   };
 
-  const handleSendFeedback = async () => {
-    const message = feedbackText.trim();
-    if (!message || !user) return;
+  const nav = navigation.getParent() ?? navigation;
 
-    setSendingFeedback(true);
-    try {
-      const { error } = await supabase.from('app_feedback').insert({
-        user_id: user.id,
-        message,
-      });
-      if (error) throw error;
-      setFeedbackText('');
-      setShowFeedback(false);
-      Alert.alert('Thank You!', 'Your feedback has been submitted. We appreciate it!');
-    } catch (err: any) {
-      Alert.alert('Error', err.message ?? 'Failed to send feedback');
-    } finally {
-      setSendingFeedback(false);
-    }
-  };
+  // ── Computed values ───────────────────────────────────────
 
-  const handleContactSupport = () => {
-    const subject = encodeURIComponent('Setpoint AI Support');
-    const body = encodeURIComponent(
-      `\n\n---\nApp Version: ${Constants.expoConfig?.version ?? '1.1'}\nUser: ${user?.email ?? 'unknown'}`
-    );
-    Linking.openURL(`mailto:brandon@getsurmount.com?subject=${subject}&body=${body}`);
-  };
+  const profileParts: string[] = [];
+  if (scheduleDays > 0) profileParts.push(`${scheduleDays}d schedule`);
+  if (goalCount > 0) profileParts.push(`${goalCount} goal${goalCount !== 1 ? 's' : ''}`);
+  if (prefCount > 0) profileParts.push(`${prefCount} pref${prefCount !== 1 ? 's' : ''}`);
+  if (equipCount > 0) profileParts.push(`${equipCount} equip`);
+  const profileSummary = profileParts.length > 0 ? profileParts.join(' · ') : 'Not configured';
 
-  const handleRateApp = async () => {
-    const didRequest = await requestReviewManually();
-    if (!didRequest) {
-      Alert.alert(
-        'Rate Setpoint AI',
-        'Unable to open the store review on this device. You can rate us on the App Store or Google Play!',
-      );
-    }
-  };
+  const subscriptionLabel =
+    tier === 'plus'
+      ? isTrialing && trialEndsAt
+        ? `Setpoint+ (Trial — ${Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000))}d left)`
+        : 'Setpoint+'
+      : 'Free';
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
-
-  const goals = preferences.filter((p) => p.category === 'goal');
-  const prefs = preferences.filter((p) => p.category === 'preference');
-  const equipment = preferences.filter((p) => p.category === 'equipment');
+  // ── Render ────────────────────────────────────────────────
 
   return (
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
     >
-      {/* Weekly Schedule */}
-      <ScheduleSection
-        schedule={schedule}
-        onSave={saveScheduleDay}
-      />
-
-      {/* Goals */}
-      <PreferenceSection
-        title="Goals"
-        category="goal"
-        items={goals}
-        userId={user!.id}
-        onChanged={handlePreferencesChanged}
-        presets={GOAL_PRESETS}
-      />
-
-      {/* Preferences */}
-      <PreferenceSection
-        title="Training Preferences"
-        category="preference"
-        items={prefs}
-        userId={user!.id}
-        onChanged={handlePreferencesChanged}
-        presets={PREFERENCE_PRESETS}
-      />
-
-      {/* Equipment */}
-      <PreferenceSection
-        title="Equipment"
-        category="equipment"
-        items={equipment}
-        userId={user!.id}
-        onChanged={handlePreferencesChanged}
-        presets={EQUIPMENT_PRESETS}
-      />
-
-      {/* Data */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>Data</Text>
-        <TouchableOpacity
-          style={styles.importButton}
-          onPress={() => {
-            if (tier === 'free') {
-              Alert.alert(
-                'Setpoint+ Feature',
-                'CSV import is available on the Setpoint+ plan. Upgrade to import your workout history.',
-                [
-                  { text: 'Not Now', style: 'cancel' },
-                  {
-                    text: 'Upgrade',
-                    onPress: () => navigation.getParent()?.navigate('PaywallScreen'),
-                  },
-                ],
-              );
-              return;
-            }
-            navigation.getParent()?.navigate('ImportScreen');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.importButtonText}>Import Workout History (CSV)</Text>
-          {tier === 'free' && (
-            <Text style={styles.importBadgeText}>Setpoint+</Text>
-          )}
-        </TouchableOpacity>
+      {/* ── Training ─────────────────────────────────────── */}
+      <Text style={styles.groupTitle}>Training</Text>
+      <View style={styles.menuGroup}>
+        <MenuRow
+          label="Training Profile"
+          detail={profileSummary}
+          onPress={() => nav.navigate('TrainingProfileScreen')}
+          isFirst
+        />
+        <MenuRow
+          label="Fitness Baseline"
+          detail="Lifts, paces, experience"
+          onPress={() => nav.navigate('BaselineScreen')}
+          isLast
+        />
       </View>
 
-      {/* Support & Feedback */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>
-          Support & Feedback
-        </Text>
-        <TouchableOpacity
-          style={[styles.supportRow, styles.supportRowFirst]}
-          onPress={() => setShowFeedback(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.supportRowText}>Send Feedback</Text>
-          <Text style={styles.supportRowChevron}>›</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.supportRow}
-          onPress={handleContactSupport}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.supportRowText}>Contact Support</Text>
-          <Text style={styles.supportRowDetail}>brandon@getsurmount.com</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.supportRow, styles.supportRowLast]}
-          onPress={handleRateApp}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.supportRowText}>Rate Setpoint AI</Text>
-          <Text style={styles.supportRowChevron}>⭐</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Subscription */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>Subscription</Text>
-        <View style={styles.subscriptionCard}>
-          <Text style={styles.subscriptionTier}>
-            {tier === 'plus' ? 'Setpoint+' : 'Free'}
-            {isTrialing && trialEndsAt && (
-              <Text style={styles.subscriptionTrialBadge}>
-                {' '}(Trial \u2014 {Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000))} days left)
-              </Text>
-            )}
-          </Text>
-          {aiSessionsLimit != null && (
-            <Text style={styles.subscriptionUsage}>
-              AI sessions: {aiSessionsUsed} / {aiSessionsLimit} this month
+      {/* ── Subscription ─────────────────────────────────── */}
+      <Text style={styles.groupTitle}>Subscription</Text>
+      <View style={styles.menuGroup}>
+        <View style={[styles.menuRow, styles.menuRowFirst, styles.menuRowNonInteractive]}>
+          <Text style={styles.menuRowLabel}>{subscriptionLabel}</Text>
+          {aiSessionsLimit != null ? (
+            <Text style={styles.menuRowDetail}>
+              {aiSessionsUsed} / {aiSessionsLimit} sessions
             </Text>
-          )}
-          {tier === 'plus' && !aiSessionsLimit && (
-            <Text style={styles.subscriptionUsage}>
-              Unlimited AI coaching
-            </Text>
-          )}
+          ) : tier === 'plus' ? (
+            <Text style={styles.menuRowDetail}>Unlimited</Text>
+          ) : null}
         </View>
-        {tier === 'free' && (
+        {tier === 'free' ? (
           <TouchableOpacity
-            style={styles.upgradeButton}
-            onPress={() => navigation.getParent()?.navigate('PaywallScreen')}
-            activeOpacity={0.8}
+            style={[styles.menuRow, styles.menuRowLast]}
+            onPress={() => nav.navigate('PaywallScreen')}
+            activeOpacity={0.7}
           >
-            <Text style={styles.upgradeButtonText}>Upgrade to Setpoint+</Text>
+            <Text style={[styles.menuRowLabel, { color: colors.primary, fontWeight: '600' }]}>
+              Upgrade to Setpoint+
+            </Text>
+            <Text style={styles.menuRowChevron}>›</Text>
           </TouchableOpacity>
-        )}
-        {tier === 'plus' && (
+        ) : (
           <TouchableOpacity
-            style={styles.manageButton}
+            style={[styles.menuRow, styles.menuRowLast]}
             onPress={manageSubscription}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
           >
-            <Text style={styles.manageButtonText}>Manage Subscription</Text>
+            <Text style={styles.menuRowLabel}>Manage Subscription</Text>
+            <Text style={styles.menuRowChevron}>›</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Account */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>Account</Text>
-        <Text style={styles.emailText}>{user?.email}</Text>
+      {/* ── Support ──────────────────────────────────────── */}
+      <Text style={styles.groupTitle}>Support</Text>
+      <View style={styles.menuGroup}>
+        <MenuRow
+          label="Send Feedback"
+          onPress={() => setShowFeedback(true)}
+          isFirst
+        />
+        <MenuRow
+          label="Contact Support"
+          detail="brandon@getsurmount.com"
+          onPress={handleContactSupport}
+          chevron={false}
+        />
+        <MenuRow
+          label="Rate Setpoint AI"
+          detail="⭐"
+          onPress={handleRateApp}
+          isLast
+          chevron={false}
+        />
+      </View>
+
+      {/* ── Account ──────────────────────────────────────── */}
+      <Text style={styles.groupTitle}>Account</Text>
+      <View style={styles.menuGroup}>
+        <View style={[styles.menuRow, styles.menuRowFirst, styles.menuRowNonInteractive]}>
+          <Text style={styles.menuRowLabel}>{user?.email}</Text>
+        </View>
         <TouchableOpacity
-          style={styles.logoutButton}
+          style={[styles.menuRow, styles.menuRowLast]}
           onPress={handleLogout}
-          activeOpacity={0.8}
+          activeOpacity={0.7}
         >
-          <Text style={styles.logoutText}>Log Out</Text>
+          <Text style={[styles.menuRowLabel, { color: colors.error }]}>
+            Log Out
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Developer Tools (dev builds only) */}
+      {/* ── Developer Tools (dev builds only) ────────────── */}
       {__DEV__ && (
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { marginBottom: spacing.md }]}>
-            Developer Tools
-          </Text>
-          <View style={styles.devToolsCard}>
-            <View style={styles.devToolsRow}>
-              <Text style={styles.devToolsLabel}>
-                Tier Override
-              </Text>
+        <>
+          <Text style={styles.groupTitle}>Developer Tools</Text>
+          <View style={styles.menuGroup}>
+            <View style={[styles.menuRow, styles.menuRowFirst, styles.menuRowNonInteractive]}>
+              <Text style={styles.menuRowLabel}>Tier Override</Text>
               <View style={styles.devTierToggle}>
-                <Text style={[
-                  styles.devTierLabel,
-                  (devTierOverride ?? tier) === 'free' && styles.devTierLabelActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.devTierLabel,
+                    (devTierOverride ?? tier) === 'free' &&
+                      styles.devTierLabelActive,
+                  ]}
+                >
                   Free
                 </Text>
                 <Switch
                   value={(devTierOverride ?? tier) === 'plus'}
-                  onValueChange={(v) => setDevTierOverride(v ? 'plus' : 'free')}
+                  onValueChange={(v) =>
+                    setDevTierOverride(v ? 'plus' : 'free')
+                  }
                   trackColor={{ false: colors.border, true: colors.primary }}
                   thumbColor="#fff"
                 />
-                <Text style={[
-                  styles.devTierLabel,
-                  (devTierOverride ?? tier) === 'plus' && styles.devTierLabelActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.devTierLabel,
+                    (devTierOverride ?? tier) === 'plus' &&
+                      styles.devTierLabelActive,
+                  ]}
+                >
                   Plus
                 </Text>
               </View>
             </View>
             {devTierOverride && (
               <TouchableOpacity
+                style={[styles.menuRow, styles.menuRowNonInteractive]}
                 onPress={() => setDevTierOverride(null)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.devTierResetText}>Reset to actual tier ({tier === devTierOverride ? 'same' : tier})</Text>
+                <Text style={[styles.menuRowLabel, { color: colors.warning, fontSize: 13 }]}>
+                  Reset to actual tier ({tier === devTierOverride ? 'same' : tier})
+                </Text>
               </TouchableOpacity>
             )}
-            <View style={[styles.devToolsRow, { marginTop: spacing.sm }]}>
-              <Text style={styles.devToolsLabel}>
-                AI Sessions: {aiSessionsUsed}
+            <View style={[styles.menuRow, styles.menuRowNonInteractive]}>
+              <Text style={styles.menuRowLabel}>AI Sessions</Text>
+              <Text style={styles.menuRowDetail}>
+                {aiSessionsUsed}
                 {aiSessionsLimit != null ? ` / ${aiSessionsLimit}` : ' (unlimited)'}
               </Text>
             </View>
             <TouchableOpacity
-              style={[styles.devResetButton, resettingAI && { opacity: 0.5 }]}
+              style={[styles.menuRow, styles.menuRowLast]}
               onPress={handleResetAISessions}
               activeOpacity={0.8}
               disabled={resettingAI}
@@ -724,14 +382,16 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
               {resettingAI ? (
                 <ActivityIndicator size="small" color={colors.warning} />
               ) : (
-                <Text style={styles.devResetButtonText}>Reset AI Sessions</Text>
+                <Text style={[styles.menuRowLabel, { color: colors.warning }]}>
+                  Reset AI Sessions
+                </Text>
               )}
             </TouchableOpacity>
           </View>
-        </View>
+        </>
       )}
 
-      {/* App Info */}
+      {/* ── App version ──────────────────────────────────── */}
       <View style={styles.versionContainer}>
         <Text style={styles.versionText}>
           Setpoint AI v{Constants.expoConfig?.version ?? '1.1'}
@@ -741,7 +401,7 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
         )}
       </View>
 
-      {/* Feedback Modal */}
+      {/* ── Feedback Modal ───────────────────────────────── */}
       <Modal
         visible={showFeedback}
         animationType="slide"
@@ -794,246 +454,71 @@ export default function SettingsScreen({ navigation }: { navigation: any }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, paddingBottom: spacing.xl * 3 },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-  },
+  content: { paddingVertical: spacing.lg, paddingBottom: spacing.xl * 3 },
 
-  section: {
-    marginBottom: spacing.xl,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  suggestionsToggle: {
+  // Section group titles (iOS-style)
+  groupTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: colors.primary,
-  },
-
-  // Schedule
-  scheduleRowWrapper: {
+    color: colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: spacing.lg,
     marginBottom: spacing.sm,
-  },
-  scheduleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  scheduleDay: {
-    width: 100,
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textSecondary,
-  },
-  scheduleInputWrapper: {
-    flex: 1,
-  },
-  scheduleInput: {
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    fontSize: 15,
-    color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
   },
 
-  // Preset chips
-  schedulePresetRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: spacing.xs,
-    marginBottom: spacing.sm,
-    marginLeft: 100,
-    gap: spacing.xs,
-  },
-  presetChipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-    gap: spacing.xs,
-  },
-  presetChip: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    paddingVertical: spacing.xs + 2,
-    paddingHorizontal: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  presetChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  presetChipText: {
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  presetChipTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-
-  // Preferences
-  prefRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    padding: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  prefText: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.text,
-    marginRight: spacing.sm,
-  },
-  prefDelete: { fontSize: 14, color: colors.textTertiary },
-  prefAddRow: {
-    flexDirection: 'row',
-    marginTop: spacing.xs,
-  },
-  prefAddInput: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    fontSize: 14,
-    color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginRight: spacing.sm,
-  },
-  prefAddButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    width: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  prefAddButtonText: { color: '#fff', fontSize: 20, fontWeight: '600' },
-
-  // Subscription
-  subscriptionCard: {
+  // Grouped menu card
+  menuGroup: {
+    marginHorizontal: spacing.lg,
     backgroundColor: colors.surface,
     borderRadius: 12,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  subscriptionTier: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  subscriptionTrialBadge: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.warning,
-  },
-  subscriptionUsage: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  upgradeButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    padding: spacing.md,
-    alignItems: 'center',
-  },
-  upgradeButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  manageButton: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: spacing.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  manageButtonText: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '500',
-  },
-
-  // Import
-  importButton: {
-    backgroundColor: colors.primary + '12',
-    borderRadius: 12,
-    padding: spacing.md,
-    alignItems: 'center',
-  },
-  importButtonText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
-  importBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.primary,
-    backgroundColor: colors.primary + '18',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 4,
     overflow: 'hidden',
-    marginTop: spacing.xs,
   },
-
-  // Account
-  emailText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-  },
-  logoutButton: {
-    backgroundColor: colors.error + '12',
-    borderRadius: 12,
-    padding: spacing.md,
-    alignItems: 'center',
-  },
-  logoutText: { color: colors.error, fontSize: 16, fontWeight: '600' },
-
-  // Developer Tools
-  devToolsCard: {
-    backgroundColor: colors.warning + '10',
-    borderRadius: 12,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.warning + '30',
-  },
-  devToolsLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  devResetButton: {
-    backgroundColor: colors.warning + '18',
-    borderRadius: 8,
-    padding: spacing.sm,
-    alignItems: 'center',
-  },
-  devToolsRow: {
+  menuRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    minHeight: 48,
   },
+  menuRowFirst: {
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  menuRowLast: {
+    borderBottomWidth: 0,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  menuRowNonInteractive: {},
+  menuRowLabel: {
+    fontSize: 15,
+    color: colors.text,
+    fontWeight: '500',
+    flexShrink: 1,
+  },
+  menuRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.sm,
+    flexShrink: 0,
+  },
+  menuRowDetail: {
+    fontSize: 13,
+    color: colors.textTertiary,
+    marginRight: spacing.xs,
+  },
+  menuRowChevron: {
+    fontSize: 18,
+    color: colors.textTertiary,
+    fontWeight: '600',
+  },
+
+  // Dev tools
   devTierToggle: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1048,23 +533,14 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '700',
   },
-  devTierResetText: {
-    fontSize: 12,
-    color: colors.warning,
-    marginTop: spacing.xs,
-  },
-  devResetButtonText: {
-    color: colors.warning,
-    fontSize: 14,
-    fontWeight: '600',
-  },
 
-  // Version
+  // Version footer
   versionContainer: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
     gap: spacing.sm,
+    paddingTop: spacing.xl,
     paddingBottom: spacing.lg,
   },
   versionText: {
@@ -1080,40 +556,6 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     overflow: 'hidden',
-  },
-
-  // Support & Feedback
-  supportRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  supportRowFirst: {
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-  },
-  supportRowLast: {
-    borderBottomWidth: 0,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-  },
-  supportRowText: {
-    fontSize: 15,
-    color: colors.text,
-    fontWeight: '500',
-  },
-  supportRowDetail: {
-    fontSize: 13,
-    color: colors.textTertiary,
-  },
-  supportRowChevron: {
-    fontSize: 18,
-    color: colors.textTertiary,
   },
 
   // Feedback modal

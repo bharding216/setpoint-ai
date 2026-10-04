@@ -9,18 +9,34 @@ export async function loadCompactProfile(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<string> {
-  const { data: aiProfile } = await supabase
-    .from("user_ai_profiles")
-    .select("profile_data")
-    .eq("user_id", userId)
-    .single();
+  const [{ data: aiProfile }, { data: baseline }] = await Promise.all([
+    supabase
+      .from("user_ai_profiles")
+      .select("profile_data")
+      .eq("user_id", userId)
+      .single(),
+    supabase
+      .from("fitness_baselines")
+      .select("experience_level, benchmarks, notes")
+      .eq("user_id", userId)
+      .single(),
+  ]);
+
+  const sections: string[] = [];
 
   if (aiProfile?.profile_data && Object.keys(aiProfile.profile_data).length > 0) {
-    return formatProfileData(aiProfile.profile_data);
+    sections.push(formatProfileData(aiProfile.profile_data));
+  } else {
+    // Fallback: build inline from raw data (first-time user or profile not yet built)
+    sections.push(await buildInlineProfile(supabase, userId));
   }
 
-  // Fallback: build inline from raw data (first-time user or profile not yet built)
-  return await buildInlineProfile(supabase, userId);
+  if (baseline) {
+    const baselineText = formatBaseline(baseline);
+    if (baselineText) sections.push(baselineText);
+  }
+
+  return sections.join("\n\n");
 }
 
 function formatProfileData(data: any): string {
@@ -56,6 +72,53 @@ function formatProfileData(data: any): string {
 
   if (data.fatigue_notes) {
     sections.push(`FATIGUE NOTES: ${data.fatigue_notes}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+function formatBaseline(baseline: any): string {
+  const sections: string[] = [];
+
+  if (baseline.experience_level) {
+    sections.push(`EXPERIENCE LEVEL: ${baseline.experience_level}`);
+  }
+
+  const bm = baseline.benchmarks ?? {};
+
+  if (bm.strength && Object.keys(bm.strength).length > 0) {
+    const lines = Object.entries(bm.strength).map(
+      ([key, val]: [string, any]) => {
+        const name = key
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (c: string) => c.toUpperCase());
+        const parts: string[] = [];
+        if (val.weight != null) parts.push(`${val.weight} lbs`);
+        if (val.reps != null) parts.push(`${val.reps} reps`);
+        return `  ${name}: ${parts.join(" × ")}`;
+      },
+    );
+    sections.push(
+      "SELF-REPORTED STRENGTH BASELINES (user-provided starting point):\n" +
+        lines.join("\n"),
+    );
+  }
+
+  if (bm.cardio && Object.keys(bm.cardio).length > 0) {
+    const lines: string[] = [];
+    if (bm.cardio.run_pace) lines.push(`  Running — easy pace: ${bm.cardio.run_pace}/mi`);
+    if (bm.cardio.swim_pace) lines.push(`  Swimming: ${bm.cardio.swim_pace}`);
+    if (bm.cardio.bike_pace) lines.push(`  Cycling: ${bm.cardio.bike_pace}`);
+    if (bm.cardio.notes) lines.push(`  Other: ${bm.cardio.notes}`);
+    if (lines.length > 0) {
+      sections.push(
+        "SELF-REPORTED CARDIO BASELINES:\n" + lines.join("\n"),
+      );
+    }
+  }
+
+  if (baseline.notes) {
+    sections.push(`ATHLETE NOTES: ${baseline.notes}`);
   }
 
   return sections.join("\n\n");

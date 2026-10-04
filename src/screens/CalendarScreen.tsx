@@ -26,6 +26,14 @@ import { supabase } from '../lib/supabase';
 import { colors, spacing } from '../theme';
 import { ExerciseSet, DAY_NAMES } from '../types/database';
 import { formatWeight, formatWeightWithUnit } from '../lib/formatWeight';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -129,14 +137,25 @@ function getWeekDays(date: Date): Date[] {
 function getDateRange(view: CalendarViewMode, refDate: Date): { start: string; end: string } {
   if (view === 'month') {
     const grid = getMonthGrid(refDate.getFullYear(), refDate.getMonth());
-    return { start: toDateKey(grid[0][0]), end: toDateKey(grid[5][6]) };
+    const s = new Date(grid[0][0]);
+    s.setDate(s.getDate() - 1);
+    const e = new Date(grid[5][6]);
+    e.setDate(e.getDate() + 1);
+    return { start: toDateKey(s), end: toDateKey(e) };
   }
   if (view === 'week') {
     const days = getWeekDays(refDate);
-    return { start: toDateKey(days[0]), end: toDateKey(days[6]) };
+    const s = new Date(days[0]);
+    s.setDate(s.getDate() - 1);
+    const e = new Date(days[6]);
+    e.setDate(e.getDate() + 1);
+    return { start: toDateKey(s), end: toDateKey(e) };
   }
-  const key = toDateKey(refDate);
-  return { start: key, end: key };
+  const s = new Date(refDate);
+  s.setDate(s.getDate() - 1);
+  const e = new Date(refDate);
+  e.setDate(e.getDate() + 1);
+  return { start: toDateKey(s), end: toDateKey(e) };
 }
 
 function statusColor(status: string): string {
@@ -355,6 +374,125 @@ function WorkoutPreviewCard({
   );
 }
 
+// ─── Swipeable Day Panel ────────────────────────────────────
+
+const SWIPE_THRESHOLD_RATIO = 0.25;
+const SWIPE_VELOCITY_THRESHOLD = 500;
+const PANEL_INIT_WIDTH = SCREEN_WIDTH - spacing.md * 2;
+
+function fireSwipeHaptic() {
+  Haptics.selectionAsync();
+}
+
+function SwipeableDayPanel({
+  currentDate,
+  onSwipePrev,
+  onSwipeNext,
+  renderContent,
+  style,
+}: {
+  currentDate: Date;
+  onSwipePrev: () => void;
+  onSwipeNext: () => void;
+  renderContent: (date: Date) => React.ReactNode;
+  style?: any;
+}) {
+  const panelW = useSharedValue(PANEL_INIT_WIDTH);
+  const translateX = useSharedValue(0);
+
+  const prevDate = useMemo(() => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() - 1);
+    return d;
+  }, [currentDate.getTime()]);
+
+  const nextDate = useMemo(() => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() + 1);
+    return d;
+  }, [currentDate.getTime()]);
+
+  const commitSwipe = useCallback(
+    (direction: 'next' | 'prev') => {
+      translateX.value = 0;
+      if (direction === 'next') onSwipeNext();
+      else onSwipePrev();
+    },
+    [onSwipeNext, onSwipePrev],
+  );
+
+  const gesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-15, 15])
+        .failOffsetY([-10, 10])
+        .onUpdate((e) => {
+          translateX.value = e.translationX;
+        })
+        .onEnd((e) => {
+          const pw = panelW.value;
+          const threshold = pw * SWIPE_THRESHOLD_RATIO;
+          const goNext =
+            e.translationX < -threshold ||
+            (e.translationX < -20 && e.velocityX < -SWIPE_VELOCITY_THRESHOLD);
+          const goPrev =
+            e.translationX > threshold ||
+            (e.translationX > 20 && e.velocityX > SWIPE_VELOCITY_THRESHOLD);
+
+          if (goNext) {
+            runOnJS(fireSwipeHaptic)();
+            translateX.value = withTiming(-pw, { duration: 250 }, (finished) => {
+              if (finished) {
+                runOnJS(commitSwipe)('next');
+              }
+            });
+          } else if (goPrev) {
+            runOnJS(fireSwipeHaptic)();
+            translateX.value = withTiming(pw, { duration: 250 }, (finished) => {
+              if (finished) {
+                runOnJS(commitSwipe)('prev');
+              }
+            });
+          } else {
+            translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+          }
+        }),
+    [commitSwipe],
+  );
+
+  const rowStyle = useAnimatedStyle(() => ({
+    flexDirection: 'row' as const,
+    transform: [{ translateX: translateX.value - panelW.value }],
+  }));
+
+  const panelStyle = useAnimatedStyle(() => ({
+    width: panelW.value,
+  }));
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Reanimated.View
+        style={[{ overflow: 'hidden' }, style]}
+        onLayout={(e) => {
+          panelW.value = e.nativeEvent.layout.width;
+        }}
+      >
+        <Reanimated.View style={rowStyle}>
+          <Reanimated.View style={panelStyle}>
+            {renderContent(prevDate)}
+          </Reanimated.View>
+          <Reanimated.View style={panelStyle}>
+            {renderContent(currentDate)}
+          </Reanimated.View>
+          <Reanimated.View style={panelStyle}>
+            {renderContent(nextDate)}
+          </Reanimated.View>
+        </Reanimated.View>
+      </Reanimated.View>
+    </GestureDetector>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────
 
 export default function CalendarScreen({ navigation }: { navigation: any }) {
@@ -512,6 +650,38 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
     setViewMode(mode);
     if (mode === 'day') setRefDate(selectedDate);
   };
+
+  // ─── Day swipe navigation ──────────────────────────────────
+
+  const swipeToPrevDay = useCallback(() => {
+    setSelectedDate((d) => {
+      const prev = new Date(d);
+      prev.setDate(prev.getDate() - 1);
+      return prev;
+    });
+    if (viewMode === 'day') {
+      setRefDate((d) => {
+        const prev = new Date(d);
+        prev.setDate(prev.getDate() - 1);
+        return prev;
+      });
+    }
+  }, [viewMode]);
+
+  const swipeToNextDay = useCallback(() => {
+    setSelectedDate((d) => {
+      const next = new Date(d);
+      next.setDate(next.getDate() + 1);
+      return next;
+    });
+    if (viewMode === 'day') {
+      setRefDate((d) => {
+        const next = new Date(d);
+        next.setDate(next.getDate() + 1);
+        return next;
+      });
+    }
+  }, [viewMode]);
 
   // ─── Chat panel toggle ─────────────────────────────────────
 
@@ -933,7 +1103,7 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
         {/* Calendar content */}
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { flexGrow: 1 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -1062,66 +1232,89 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
 
           {/* ── Day view ────────────────────────────────── */}
           {viewMode === 'day' && (
-            <View style={styles.dayViewContainer}>
-              <Text style={styles.dayViewDate}>{formatFullDate(refDate)}</Text>
-              {selectedDayWorkouts.length > 0 ? (
-                selectedDayWorkouts.map((w) => renderDayWorkoutCard(w))
-              ) : (
-                <View style={styles.emptyDay}>
-                  <Text style={styles.emptyDayTitle}>Rest Day</Text>
-                  <Text style={styles.emptyDaySubtitle}>No workout planned</Text>
-                  {selectedKey >= tKey && (
-                    <TouchableOpacity
-                      style={[styles.planButton, { marginTop: spacing.md }]}
-                      onPress={startAIChat}
-                      activeOpacity={0.8}
-                    >
-                      <SymbolView
-                        name="sparkles"
-                        tintColor="#fff"
-                        style={{ width: 16, height: 16 }}
-                        type="monochrome"
-                      />
-                      <Text style={styles.planButtonText}>Plan with AI</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            </View>
+            <SwipeableDayPanel
+              currentDate={refDate}
+              onSwipePrev={swipeToPrevDay}
+              onSwipeNext={swipeToNextDay}
+              style={{ flexGrow: 1 }}
+              renderContent={(date) => {
+                const key = toDateKey(date);
+                const dayW = workoutsByDate[key] ?? [];
+                return (
+                  <View style={styles.dayViewContainer}>
+                    <Text style={styles.dayViewDate}>{formatFullDate(date)}</Text>
+                    {dayW.length > 0 ? (
+                      dayW.map((w) => renderDayWorkoutCard(w))
+                    ) : (
+                      <View style={styles.emptyDay}>
+                        <Text style={styles.emptyDayTitle}>Rest Day</Text>
+                        <Text style={styles.emptyDaySubtitle}>No workout planned</Text>
+                        {key >= tKey && (
+                          <TouchableOpacity
+                            style={[styles.planButton, { marginTop: spacing.md }]}
+                            onPress={startAIChat}
+                            activeOpacity={0.8}
+                          >
+                            <SymbolView
+                              name="sparkles"
+                              tintColor="#fff"
+                              style={{ width: 16, height: 16 }}
+                              type="monochrome"
+                            />
+                            <Text style={styles.planButtonText}>Plan with AI</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              }}
+            />
           )}
 
           {/* ── Selected day details (month & week views) ─ */}
           {viewMode !== 'day' && (
-            <View style={styles.dayDetailSection}>
-              <Text style={styles.dayDetailTitle}>{formatFullDate(selectedDate)}</Text>
+            <SwipeableDayPanel
+              currentDate={selectedDate}
+              onSwipePrev={swipeToPrevDay}
+              onSwipeNext={swipeToNextDay}
+              style={{ flexGrow: 1 }}
+              renderContent={(date) => {
+                const key = toDateKey(date);
+                const dayW = workoutsByDate[key] ?? [];
+                return (
+                  <View style={styles.dayDetailSection}>
+                    <Text style={styles.dayDetailTitle}>{formatFullDate(date)}</Text>
 
-              {selectedDayWorkouts.length > 0 ? (
-                selectedDayWorkouts.map((w) => renderWorkoutCard(w))
-              ) : (
-                <View style={styles.emptyDayCompact}>
-                  <Text style={styles.emptyDayCompactText}>
-                    {selectedKey >= tKey ? 'No workout planned' : 'Rest day'}
-                  </Text>
-                </View>
-              )}
+                    {dayW.length > 0 ? (
+                      dayW.map((w) => renderWorkoutCard(w))
+                    ) : (
+                      <View style={styles.emptyDayCompact}>
+                        <Text style={styles.emptyDayCompactText}>
+                          {key >= tKey ? 'No workout planned' : 'Rest day'}
+                        </Text>
+                      </View>
+                    )}
 
-              {/* Plan button if no workout on this day */}
-              {selectedDayWorkouts.length === 0 && selectedKey >= tKey && (
-                <TouchableOpacity
-                  style={styles.planButton}
-                  onPress={startAIChat}
-                  activeOpacity={0.8}
-                >
-                  <SymbolView
-                    name="sparkles"
-                    tintColor="#fff"
-                    style={{ width: 16, height: 16 }}
-                    type="monochrome"
-                  />
-                  <Text style={styles.planButtonText}>Plan with AI</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                    {dayW.length === 0 && key >= tKey && (
+                      <TouchableOpacity
+                        style={styles.planButton}
+                        onPress={startAIChat}
+                        activeOpacity={0.8}
+                      >
+                        <SymbolView
+                          name="sparkles"
+                          tintColor="#fff"
+                          style={{ width: 16, height: 16 }}
+                          type="monochrome"
+                        />
+                        <Text style={styles.planButtonText}>Plan with AI</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              }}
+            />
           )}
 
           <View style={{ height: spacing.lg }} />
@@ -1167,7 +1360,9 @@ export default function CalendarScreen({ navigation }: { navigation: any }) {
               {displayMessages.length === 0 && !chatLoading && (
                 <View style={styles.chatEmpty}>
                   <Text style={styles.chatEmptyText}>
-                    Tap "Plan with AI" or type a message to get started.
+                    {selectedKey >= tKey
+                      ? 'Tap "Plan with AI" or type a message to get started.'
+                      : 'Type a message to chat with your AI coach.'}
                   </Text>
 
                   {selectedKey >= tKey && selectedDayWorkouts.length === 0 && (

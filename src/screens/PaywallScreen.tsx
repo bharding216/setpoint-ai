@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
 } from 'react-native';
 import { PurchasesPackage, PACKAGE_TYPE } from 'react-native-purchases';
@@ -305,6 +306,24 @@ export default function PaywallScreen({
           confirmation of purchase. Subscription automatically renews unless
           canceled at least 24 hours before the end of the current period.
         </Text>
+
+        <Text style={styles.legalText}>
+          By subscribing, you agree to our{' '}
+          <Text
+            style={styles.legalLink}
+            onPress={() => Linking.openURL('https://www.brandonharding.dev/setpoint/terms')}
+          >
+            Terms of Use
+          </Text>{' '}
+          and{' '}
+          <Text
+            style={styles.legalLink}
+            onPress={() => Linking.openURL('https://www.brandonharding.dev/setpoint/privacy')}
+          >
+            Privacy Policy
+          </Text>
+          .
+        </Text>
       </View>
     </ScrollView>
   );
@@ -545,6 +564,16 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     textAlign: 'center',
     lineHeight: 16,
+  },
+  legalText: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  legalLink: {
+    color: colors.primary,
+    textDecorationLine: 'underline',
   },
 
   // Active state
